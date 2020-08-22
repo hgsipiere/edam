@@ -82,3 +82,11 @@ aLookup ((k,v):bs) k' def | k == k' = v
 aDomain = map fst
 aRange = map snd
 aEmpty = []
+
+-- this should be a recursion scheme
+mkApChain :: [CoreExpr] -> CoreExpr
+mkApChain (expr:rest@(_:_)) = EAp expr $ mkApChain rest
+mkApChain [x] = x
+mkApChain [] = error "empty app chain"
+
+

@@ -45,11 +45,11 @@ prsVar = EVar <$> prsIdent
 
 -- Pack{num, num}
 prsPack :: Parser CoreExpr
-prsPack = braces $ do
+prsPack = symbol "Pack" *> (braces $ do
   tag <- integer
   symbol ","
   arity <- integer
-  return $ EConstr tag arity
+  return $ EConstr tag arity)
 
 prsAlt :: Parser CoreAlt
 prsAlt = do
@@ -100,14 +100,12 @@ prsLetrec = do
   expr <- prsExpr
   return $ ELet recursive defns expr
 
-prsApp = do
- to_apply <- prsExpr
- arg <- prsAExpr
- return $ EAp to_apply arg
+prsApp = mkApChain <$> some prsAExpr
 
 -- this is a seperate function for testing purposes
 prsParensExpr = parens prsExpr
 
 prsAExpr = prsVar <|> prsNum <|> prsPack <|> prsParensExpr
 -- do not parse lambdas until I get to lambda lifting for convenience
-prsExpr = prsLet <|> prsLetrec <|> prsCase <|> prsApp <|> prsAExpr -- temporary
+--prsExpr = prsLet <|> prsLetrec <|> prsCase <|> prsAExpr <|> prsApp
+prsExpr = prsLet <|> prsLetrec <|> prsCase <|> prsApp <|> prsAExpr
