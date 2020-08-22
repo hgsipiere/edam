@@ -210,7 +210,7 @@ ppInstructions :: GmCode -> Doc ann
 ppInstructions is = pretty "  Code:{" <> (nest 2 $ vsep (map ppInstruction is)) <> pretty "}" <> hardline
 
 ppSC :: GmState -> (Name, Addr) -> Doc ann
-ppSC s (name, addr) = pretty "Code for " <> pretty name <> hardline <> ppInstructions code <> hardline <> hardline
+ppSC s (name, addr) = pretty "Code for " <> pretty name <> hardline <> ppInstructions code <> hardline
   where (NGlobal name code) = hLookup (getHeap s) addr
 
 ppState :: GmState -> Doc ann

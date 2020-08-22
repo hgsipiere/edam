@@ -10,10 +10,14 @@ import Type
 mainFunc :: IO ()
 mainFunc = putStrLn k
 
-prog = [("main", [], ENum 2)]
+prog = [("main", [],
+  EAp
+  (EAp (EVar "k") (ENum 9))
+  (ENum 12)
+  )]
 k = show.ppResults.eval.compile $ prog
 
-preludeDefs = []
+preludeDefs = [("i", ["x"], EVar "x"), ("k", ["x","y"], EVar "x")]
 
 doAdmin :: GmState -> GmState
 doAdmin s = putStats (statIncSteps $ getStats s) s
@@ -45,7 +49,7 @@ push :: Int -> GmState -> GmState
 push n state
   = putStack (a:as) state
   where as = getStack state
-        a  = getArg $ hLookup (getHeap state) (as !! n+1)
+        a  = getArg $ hLookup (getHeap state) (as !! (n+1))
 
 -- slide n:i a_0: ... :a_n:s h m
 -- =>      i           a_0:s h m
