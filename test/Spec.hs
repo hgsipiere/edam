@@ -36,7 +36,7 @@ parsingTests = describe "parsing" $ do
     it "parse \"id 2\" as an application" apPrsTest
     it "parse \"k i\" as an expression" apExprPrsTest
     it "parse \"let <x = 5> 2\" as a let expression" letPrsTest
-    it "parse \"let <telle = x y> 12\" as a recursive let expression" letrecPrsTest
+    it "parse \"letrec <telle = x y> 12\" as a recursive let expression" letrecPrsTest
     it "parse \"|x| <1> hello -> 2\" as a case expression" casePrsTest
 
 varsPpTest = (show.ppExpr $ EVar "sk_9") `shouldBe` "sk_9"

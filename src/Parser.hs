@@ -2,6 +2,7 @@
 
 module Parser where
 
+import Control.Applicative hiding (some, many)
 import Data.Text (Text)
 import Data.Void
 
@@ -24,13 +25,13 @@ lexeme = L.lexeme spaceConsumer
 
 symbol = L.symbol spaceConsumer
 integer = lexeme L.decimal
-scdChar = lexeme.char
+charLexeme = lexeme.char
 
 braces, parens, chevrons :: Parser a -> Parser a
-parens = between (scdChar '(') (scdChar ')')
-braces = between (scdChar '{') (scdChar '}')
-chevrons = between (scdChar '<') (scdChar '>')
-moduli = between (scdChar '|') (scdChar '|')
+parens = between (charLexeme '(') (charLexeme ')')
+braces = between (charLexeme '{') (charLexeme '}')
+chevrons = between (charLexeme '<') (charLexeme '>')
+moduli = between (charLexeme '|') (charLexeme '|')
 
 -- var -> alpha varch_1 ... varch_n n >= 0, varch -> alpha | digit | _
 prsIdent :: Parser Name
@@ -45,7 +46,6 @@ prsNum = ENum <$> integer
 prsVar :: Parser CoreExpr
 prsVar = EVar <$> prsIdent
 
--- Pack{num, num}
 prsPack :: Parser CoreExpr
 prsPack = symbol "Pack" *> (braces $ do
   tag <- integer
@@ -98,6 +98,8 @@ prsLetrec = do
   expr <- prsExpr
   return $ ELet recursive defns expr
 
+-- this is like this rather than expr aexpr
+-- because then the grammar becomes left recursive
 prsApp = mkApChain <$> some prsAExpr
 
 -- this is a seperate function for testing purposes
