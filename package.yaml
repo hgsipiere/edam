@@ -1,0 +1,54 @@
+name:                edam
+version:             0.1.0.0
+github:              "githubuser/edam"
+license:             BSD3
+author:              "Author name here"
+maintainer:          "example@example.com"
+copyright:           "2020 Author name here"
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+# Metadata used when publishing your package
+synopsis:            Experimental functional programming language
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/githubuser/edam#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+- prettyprinter >= 1.7.0 && < 1.8
+- megaparsec >= 8.0.0 && < 9
+- hspec == 2.7.2
+- hspec-megaparsec == 2.1.0
+- text == 1.2.4.0
+- mtl == 2.2.2
+
+library:
+  source-dirs: src
+
+executables:
+  edam-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - edam
+
+tests:
+  edam-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - edam

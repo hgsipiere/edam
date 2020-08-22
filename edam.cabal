@@ -1,0 +1,83 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.33.0.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: bfa74f8fe29fda6623f6e8a4b84bdd54988cbc49e4d90e46aee5829c1f1c00cf
+
+name:           edam
+version:        0.1.0.0
+synopsis:       Experimental functional programming language
+description:    Please see the README on GitHub at <https://github.com/githubuser/edam#readme>
+homepage:       https://github.com/githubuser/edam#readme
+bug-reports:    https://github.com/githubuser/edam/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2020 Author name here
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    ChangeLog.md
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/edam
+
+library
+  exposed-modules:
+      Lib
+      Parser
+      Type
+  other-modules:
+      Paths_edam
+  hs-source-dirs:
+      src
+  build-depends:
+      base >=4.7 && <5
+    , hspec ==2.7.2
+    , hspec-megaparsec ==2.1.0
+    , megaparsec >=8.0.0 && <9
+    , mtl ==2.2.2
+    , prettyprinter >=1.7.0 && <1.8
+    , text ==1.2.4.0
+  default-language: Haskell2010
+
+executable edam-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_edam
+  hs-source-dirs:
+      app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , edam
+    , hspec ==2.7.2
+    , hspec-megaparsec ==2.1.0
+    , megaparsec >=8.0.0 && <9
+    , mtl ==2.2.2
+    , prettyprinter >=1.7.0 && <1.8
+    , text ==1.2.4.0
+  default-language: Haskell2010
+
+test-suite edam-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_edam
+  hs-source-dirs:
+      test
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , edam
+    , hspec ==2.7.2
+    , hspec-megaparsec ==2.1.0
+    , megaparsec >=8.0.0 && <9
+    , mtl ==2.2.2
+    , prettyprinter >=1.7.0 && <1.8
+    , text ==1.2.4.0
+  default-language: Haskell2010
