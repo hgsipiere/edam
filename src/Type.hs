@@ -1,5 +1,7 @@
 module Type where
 
+import Data.Text.Prettyprint.Doc
+
 type IsRec = Bool
 type Name = String
 
@@ -89,4 +91,26 @@ mkApChain (expr:rest@(_:_)) = EAp expr $ mkApChain rest
 mkApChain [x] = x
 mkApChain [] = error "empty app chain"
 
+-- Pretty printing
 
+ppDefn (name, value) = pretty name <+> pretty "=" <+> ppExpr value
+
+ppExpr :: CoreExpr -> Doc ann
+ppExpr (EVar x) = pretty x
+ppExpr (ENum x) = pretty x
+ppExpr (EConstr x y) = pretty "Pack" <> braces (
+  pretty x <> comma <> pretty y)
+ppExpr (EAp x y) = ppExpr x <+> ppExpr y
+ppExpr (ELet False definitions result) = pretty "let" <+>
+  encloseSep langle rangle (semi <> space) (map ppDefn definitions) <+> ppExpr result
+ppExpr (ELet True definitions result) = pretty "letrec" <+>
+  encloseSep langle rangle (semi <> space) (map ppDefn definitions) <+> ppExpr result
+-- ppExpr (ECase match alts) = encloseSep
+--  (pretty "case" <+> ppExpr match <+> pretty "of ") semi
+--  (semi) (map ppAlt alts)
+ppExpr (ECase match alts) = pretty "case" <+> ppExpr match <+> pretty "of "
+  <> vsep (map (\x -> ppAlt x <> semi) alts)
+
+ppAlt (tag,args,expr) = (pretty "<" <> pretty tag <> pretty ">") <+>
+  encloseSep mempty mempty space (map pretty args) <+> pretty "->" <+>
+  ppExpr expr

@@ -24,11 +24,13 @@ lexeme = L.lexeme spaceConsumer
 
 symbol = L.symbol spaceConsumer
 integer = lexeme L.decimal
+scdChar = lexeme.char
 
 braces, parens, chevrons :: Parser a -> Parser a
-parens = between (char '(') (char ')')
-braces = between (lexeme $ char '{') (lexeme $ char '}')
-chevrons = between (char '<') (char '>')
+parens = between (scdChar '(') (scdChar ')')
+braces = between (scdChar '{') (scdChar '}')
+chevrons = between (scdChar '<') (scdChar '>')
+moduli = between (scdChar '|') (scdChar '|')
 
 -- var -> alpha varch_1 ... varch_n n >= 0, varch -> alpha | digit | _
 prsIdent :: Parser Name
@@ -67,9 +69,7 @@ prsAlts = do
 
 prsCase :: Parser CoreExpr
 prsCase = do
-  symbol "case"
-  expr <- prsExpr
-  symbol "of"
+  expr <- moduli prsExpr
   alts <- prsAlts
   return (ECase expr alts)
 
@@ -88,15 +88,13 @@ prsDefns = do
 
 prsLet = do
   symbol "let"
-  defns <- prsDefns
-  symbol "in"
+  defns <- chevrons prsDefns
   expr <- prsExpr
   return $ ELet nonRecursive defns expr
 
 prsLetrec = do
   symbol "letrec"
-  defns <- prsDefns
-  symbol "in"
+  defns <- chevrons prsDefns
   expr <- prsExpr
   return $ ELet recursive defns expr
 
@@ -107,5 +105,4 @@ prsParensExpr = parens prsExpr
 
 prsAExpr = prsVar <|> prsNum <|> prsPack <|> prsParensExpr
 -- do not parse lambdas until I get to lambda lifting for convenience
---prsExpr = prsLet <|> prsLetrec <|> prsCase <|> prsAExpr <|> prsApp
 prsExpr = prsLet <|> prsLetrec <|> prsCase <|> prsApp <|> prsAExpr
