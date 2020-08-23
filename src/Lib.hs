@@ -10,14 +10,31 @@ import Type
 mainFunc :: IO ()
 mainFunc = putStrLn k
 
+-- TODO Introduce runProg :: CoreExpr -> Int,
+-- that compiles, evaluates then grabs the last state
+-- if the stack is a single number prints that number
+-- otherwise error. This is so I can write tests for evaluation.
+
+--prog = [("main", [],
+--  EAp
+--  (EAp (EVar "k") (ENum 9))
+--  (ENum 9)
+--  )]
+--prog = [("main", [], EAp (EVar "i") (ENum 9))]
+
 prog = [("main", [],
   EAp
-  (EAp (EVar "k") (ENum 9))
-  (ENum 12)
-  )]
+  (EAp (EAp (EVar "twice") (EVar "twice")) (EVar "i"))
+  (ENum 3))]
+
+
 k = show.ppResults.eval.compile $ prog
 
-preludeDefs = [("i", ["x"], EVar "x"), ("k", ["x","y"], EVar "x")]
+preludeDefs = [
+  ("i", ["x"], EVar "x"),
+  --("k", ["x","y"], EVar "x"),
+  ("twice", ["f","x"], EAp (EVar "f") (EAp (EVar "f") (EVar "x")))
+  ]
 
 doAdmin :: GmState -> GmState
 doAdmin s = putStats (statIncSteps $ getStats s) s
@@ -27,11 +44,18 @@ doAdmin s = putStats (statIncSteps $ getStats s) s
 pushglobal f state = putStack (a: getStack state) state
   where a = aLookup (getGlobals state) f (error $ "Undeclared global " ++ f)
 
+-- pushint n:i   s h           m[show n:a]
+-- =>        i a:s h           m
+-- If there is "n" in the heap then just put the address on the stack
+--
+-- Otherwise put it onto the stack then also put it into the globals
 -- pushint n:i   s h           m
--- =>        i a:s h[a:NNum n] m
-pushint n state
-  = putHeap heap' (putStack (a: getStack state) state)
-  where (heap', a) = hAlloc (getHeap state) (NNum n)
+-- =>        i a:s h[a:NNum n] m[n : a]
+pushint :: Int -> GmState -> GmState
+pushint n state = case aLookupSafe (getGlobals state) (show n) of
+      Just a -> putStack (a: getStack state) state
+      Nothing -> let (heap', a) = hAlloc (getHeap state) (NNum n) in
+        appendGlobal (show n, a) $ putHeap heap' $ putStack (a: getStack state) state
 
 -- MkAp i a_1:a_2:s h                m
 -- =>   i       a:s h[a:NAp a_1 a_2] m
@@ -68,6 +92,10 @@ slide n state = putStack (a: drop n as) state
 -- [Unwind] a_0: ... :a_n:s h[a_0 : NGlobal n c] m
 -- =>     c a_0: ... :a_n:s h                    m
 -- If there is a global definition, put the defining code as the instruction list
+--
+-- [Unwind]  a:s h[a: NInd a'] m
+-- =>       a':s h             m
+-- If there is an indirection to a' at a, replace a with a'
 unwind :: GmState -> GmState
 unwind state = newState $ hLookup heap a
   where (a:as) = getStack state
@@ -77,13 +105,29 @@ unwind state = newState $ hLookup heap a
 	newState (NGlobal n c)
 	  | length as < n = error "Unwinding with too few arguments"
 	  | otherwise     = putCode c state
+	newState (NInd a') = putCode [Unwind] (putStack (a':as) state)
+
+-- Update n:i a:a_0: ... :a_n:s h             m
+-- =>       i   a_0: ... :a_n:s h[a_n:NInd a] m
+update :: Int -> GmState -> GmState
+update n state = putStack as $ putHeap (objectCount, freeAddrs, addrValueMap') state
+  where (a:as) = getStack state
+        a_n = as !! n
+	(objectCount, freeAddrs,addrValueMap) = getHeap state 
+	addrValueMap' = aReplace addrValueMap (a_n , NInd a) (error "Stack value not in heap?")
+
+-- Pop n:i a_1: ... :a_n:s h m
+-- =>    i               s h m
+pop :: Int -> GmState -> GmState
+pop n state = putStack (drop n $ getStack state) state
 
 dispatch :: Instruction -> GmState -> GmState
 dispatch (Pushglobal f) = pushglobal f
 dispatch (Pushint n) = pushint n
 dispatch MkAp = mkap
 dispatch (Push n) = push n
-dispatch (Slide n) = slide n
+dispatch (Update n) = update n
+dispatch (Pop n) = pop n
 dispatch Unwind = unwind
 
 step :: GmState -> GmState
@@ -114,13 +158,21 @@ type GmCompiler = CoreExpr -> GmEnvironment -> GmCode
 compileSc :: (Name, [Name], CoreExpr) -> GmCompiledSc
 compileSc (name,env,body) = (name, length env, compileR body (zip env [0..]))
 
+-- Old comment, need to figure out what changed
 -- Generate code for the expression, incorporating the current environment
 -- so possible variables I think? hence we then need to slide (d+1) down
 -- d for the arity, 1 for the compiled expression itself being removed as
 -- it has been compiled so we wouldn't want to loop? I think. Unwind just to reduce.
 -- R [[e]] rho d = C [[e]] rho ++ [Slide d + 1, Unwind]
+--
+-- Not sure what this does yet, Mark 2 change
+-- This is the state transition but I'm confused.
+-- Update d: Pop d:i  a:a_0: ... :a_d:s h             m
+-- =>              i                  s h[a_d:NInd a] m
+-- R[[e]] rho d = C[[e]] rho ++ [Update d, Pop d, Unwind]
 compileR :: GmCompiler
-compileR e env = compileC e env ++ [Slide (length env + 1), Unwind]
+compileR e env = compileC e env ++ [Update d, Pop d, Unwind]
+  where d = length env
 
 -- C[[f]] rho = [Pushglobal f]                                  where f is a supercombinator
 -- C[[x]] rho = [Push (rho x)]                                  where x is a local variable

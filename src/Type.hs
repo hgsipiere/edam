@@ -56,12 +56,15 @@ data Instruction
  | Pushint Int
  | Push Int
  | MkAp
- | Slide Int deriving (Show, Eq)
+ | Update Int
+ | Pop Int
+ deriving (Show, Eq)
 
 data Node
  = NNum Int
  | NAp Addr Addr
  | NGlobal Int GmCode
+ | NInd Addr deriving (Eq, Show)
 
 getArg :: Node -> Addr
 getArg (NAp a1 a2) = a2
@@ -69,6 +72,7 @@ getArg (NAp a1 a2) = a2
 type GmCode = [Instruction]
 type GmStack = [Addr]
 type GmHeap = Heap Node
+type GmGlobal = (Name,Addr)
 type GmGlobals = Assoc Name Addr
 type GmStats = Int
 
@@ -99,6 +103,9 @@ putHeap heap' (i, stack, heap, globals, stats) = (i, stack, heap', globals, stat
 
 getGlobals :: GmState -> GmGlobals
 getGlobals (_, _, _, globals, _) = globals
+
+appendGlobal :: GmGlobal -> GmState -> GmState
+appendGlobal newGlobal (i,stack,heap,globals,stats) = (i,stack,heap, newGlobal:globals, stats)
 
 getStats :: GmState -> GmStats
 getStats (_, _, _, _, stats) = stats
@@ -145,6 +152,15 @@ type Assoc a b = [(a,b)] -- association list, associates keys to values
 aLookup [] k' def = def
 aLookup ((k,v):bs) k' def | k == k' = v
                           | k /= k' = aLookup bs k' def
+
+aReplace [] _ def = def
+aReplace ((k,v):bs) (k',v') def | k == k' = (k',v'): bs
+                                | k /= k' = (k,v)  : aReplace bs (k',v') def
+
+aLookupSafe [] k' = Nothing
+aLookupSafe ((k,v):bs) k' | k == k'   = Just v
+                          | otherwise = aLookupSafe bs k'
+
 aDomain = map fst
 aRange = map snd
 aEmpty = []
@@ -184,10 +200,11 @@ ppStats s = pretty "Steps taken = " <> (pretty.statGetSteps.getStats $ s)
 
 ppNode :: GmState -> Addr -> Node -> Doc ann
 ppNode _ _ (NNum n) = pretty n
-ppNode s a (NGlobal n g) = pretty "Global " <> pretty v
+ppNode s a (NGlobal _ g) = pretty "Global " <> pretty v
   where v = head [n | (n,b) <- getGlobals s, a == b]
   -- look through the globals by address to find the correct one
-ppNode s a (NAp a1 a2) = pretty "Ap" <+> pretty a1 <+> pretty a2
+ppNode _ _ (NAp a1 a2) = pretty "Ap" <+> pretty a1 <+> pretty a2
+ppNode _ _ (NInd a) = pretty "NInd" <+> pretty a
 
 ppStackItem :: GmState -> Addr -> Doc ann
 ppStackItem s a = pretty a <> pretty ": " <> ppNode s a (hLookup (getHeap s) a)
@@ -204,7 +221,8 @@ ppInstruction (Pushglobal f) = pretty "Pushglobal" <+> pretty f
 ppInstruction (Push n) = pretty "Push" <+> pretty n
 ppInstruction (Pushint n) = pretty "Pushint" <+> pretty n
 ppInstruction MkAp = pretty "MkAp"
-ppInstruction (Slide n) = pretty "Slide" <+> pretty n
+ppInstruction (Update n) = pretty "Update" <+> pretty n
+ppInstruction (Pop n) = pretty "Pop" <+> pretty n
 
 ppInstructions :: GmCode -> Doc ann
 ppInstructions is = pretty "  Code:{" <> (nest 2 $ vsep (map ppInstruction is)) <> pretty "}" <> hardline
@@ -216,10 +234,15 @@ ppSC s (name, addr) = pretty "Code for " <> pretty name <> hardline <> ppInstruc
 ppState :: GmState -> Doc ann
 ppState s = ppStack s <> hardline <> ppInstructions (getCode s) <> hardline
 
+-- list length limiter
+limitList 0 (x:xs) = []
+limitList n (x:xs) = x:limitList (n-1) xs
+limitList k [] = []
+
 ppResults :: [GmState] -> Doc ann
 ppResults states@(s:ss) =
   pretty "Supercombinator definitions" <> hardline <>
   vsep (map (ppSC s) (getGlobals s)) <> hardline <> hardline <>
  pretty "State transitions" <> hardline <> hardline <>
- vsep (map ppState states) <> hardline <> hardline <>
+ vsep (map ppState (limitList 1000 states)) <> hardline <> hardline <>
  ppStats (last states)
