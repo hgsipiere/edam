@@ -15,25 +15,42 @@ mainFunc = putStrLn k
 -- if the stack is a single number prints that number
 -- otherwise error. This is so I can write tests for evaluation.
 
+-- TODO test for laziness by introducing fix combinator
+-- fix f x = f (fix f) x
+-- fix id 3 seems to loop forever in GHCi
+-- A solution may be to introduce a predicate, short n xs
+-- which checks if the list xs is n or shorter
+-- then for the evaluation check the evaluation states
+-- aren't ridiculously long
+-- maybe should do this program
+-- main = k 3 (fix id 3)
+
 --prog = [("main", [],
 --  EAp
 --  (EAp (EVar "k") (ENum 9))
 --  (ENum 9)
 --  )]
---prog = [("main", [], EAp (EVar "i") (ENum 9))]
+prog = [("main", [], EAp (EVar "i") (ENum 9))]
 
-prog = [("main", [],
-  EAp
-  (EAp (EAp (EVar "twice") (EVar "twice")) (EVar "i"))
-  (ENum 3))]
+--prog = [("main", [],
+--  EAp
+--  (EAp (EAp (EVar "twice") (EVar "twice")) (EVar "i"))
+--  (ENum 3))]
 
+--prog = [("main", [],
+--  EAp (EAp (EVar "fix") (EVar "i")) (ENum 12))]
 
 k = show.ppResults.eval.compile $ prog
 
+-- fix f = f (fix f)
+
 preludeDefs = [
   ("i", ["x"], EVar "x"),
+  ("fix", ["f"],
+  EAp (EVar "f")
+  (EAp (EVar "fix") (EVar "f")))
   --("k", ["x","y"], EVar "x"),
-  ("twice", ["f","x"], EAp (EVar "f") (EAp (EVar "f") (EVar "x")))
+  --("twice", ["f","x"], EAp (EVar "f") (EAp (EVar "f") (EVar "x")))
   ]
 
 doAdmin :: GmState -> GmState
@@ -62,24 +79,36 @@ pushint n state = case aLookupSafe (getGlobals state) (show n) of
 mkap state = putHeap heap' (putStack (a:as') state)
   where (heap', a) = hAlloc (getHeap state) (NAp a1 a2)
         (a1:a2:as') = getStack state
-
--- Push n:i      a_0: ... :a_(n+1): s h[a_(n+1) : NAp a_n a'_n] m
--- =>     i a'_n:a_0: ... :a_(n+1): s h                         m
--- For example push 0, would assume that the stack was where f is a function
--- a_0=f, a_1=NAp f arg like so and it would put the argument arg on top of the stack
--- then for push n, you would go n into the stack e.g. push 1,
--- a_0, a_1=f, a_2=NAp f arg and put arg on top of the stack
+-- Push n:i     a_0: ... :a_n:s h m
+-- =>     i a_n:a_0: ... :a_n:s h m
+-- Rearrange the stack so that we point to the argument being applied
+-- rather than the function doing the applying, this means that
+-- push n now takes the nth function argument starting from 0
 push :: Int -> GmState -> GmState
 push n state
-  = putStack (a:as) state
+  = putStack (a_n:as) state
   where as = getStack state
-        a  = getArg $ hLookup (getHeap state) (as !! (n+1))
+        a_n  = as !! n
 
--- slide n:i a_0: ... :a_n:s h m
+-- Slide n:i a_0: ... :a_n:s h m
 -- =>      i           a_0:s h m
 -- Take the top of the stack and put it n down
 slide n state = putStack (a: drop n as) state
   where (a:as) = getStack state
+
+-- Update n:i a:a_0: ... :a_n:s h             m
+-- =>       i   a_0: ... :a_n:s h[a_n:NInd a] m
+update :: Int -> GmState -> GmState
+update n state = putStack as $ putHeap (objectCount, freeAddrs, addrValueMap') state
+  where (a:as) = getStack state
+        a_n = as !! n
+        (objectCount, freeAddrs,addrValueMap) = getHeap state 
+        addrValueMap' = aReplace addrValueMap (a_n , NInd a) (error "Stack value not in heap?")
+
+-- Pop n:i a_1: ... :a_n:s h m
+-- =>    i               s h m
+pop :: Int -> GmState -> GmState
+pop n state = putStack (drop n $ getStack state) state
 
 -- [Unwind] a:s h[a:NNum n] m
 -- =>    [] a:s h           m
@@ -89,37 +118,37 @@ slide n state = putStack (a: drop n as) state
 -- => [Unwind] a_1:a:s h                m
 -- If an application, put the function at the top of the stack
 --
--- [Unwind] a_0: ... :a_n:s h[a_0 : NGlobal n c] m
--- =>     c a_0: ... :a_n:s h                    m
--- If there is a global definition, put the defining code as the instruction list
---
+-- [Unwind] a_0: ... :a_n:s  h[a_0 : NGlobal n c     ]
+--                            [a1  : NAp a_0     a_1']
+--                            [        ...           ]
+--                            [a_n : NAp a_(n-1) a_n'] m
+-- =>     c a_0: ... :a_n:s  h                         m
+-- If there is a global definition on top of the stack
+-- then below there will be a series of node applications
+-- however the stack is arranged to have arguments on the stack
+-- for reducing so we need to extract the arguments.
+
 -- [Unwind]  a:s h[a: NInd a'] m
 -- =>       a':s h             m
 -- If there is an indirection to a' at a, replace a with a'
 unwind :: GmState -> GmState
 unwind state = newState $ hLookup heap a
-  where (a:as) = getStack state
+  where mapn n f xs = map f (take n xs) ++ drop n xs
+        (a:as) = getStack state
         heap   = getHeap state
 	newState (NNum n) = state
 	newState (NAp a1 a2) = putCode [Unwind] (putStack (a1:a:as) state)
 	newState (NGlobal n c)
 	  | length as < n = error "Unwinding with too few arguments"
-	  | otherwise     = putCode c state
+	  | otherwise     = let stack' = rearrange n (getHeap state) (getStack state) in
+                            putCode c $ putStack stack' state
 	newState (NInd a') = putCode [Unwind] (putStack (a':as) state)
 
--- Update n:i a:a_0: ... :a_n:s h             m
--- =>       i   a_0: ... :a_n:s h[a_n:NInd a] m
-update :: Int -> GmState -> GmState
-update n state = putStack as $ putHeap (objectCount, freeAddrs, addrValueMap') state
-  where (a:as) = getStack state
-        a_n = as !! n
-	(objectCount, freeAddrs,addrValueMap) = getHeap state 
-	addrValueMap' = aReplace addrValueMap (a_n , NInd a) (error "Stack value not in heap?")
-
--- Pop n:i a_1: ... :a_n:s h m
--- =>    i               s h m
-pop :: Int -> GmState -> GmState
-pop n state = putStack (drop n $ getStack state) state
+-- As given by SPJ in the book, this takes the stack a_0:...:a_n:s to a_1:...:a_n:s then
+-- maps to the argument of the application referred to by each address like the unwind except s
+rearrange :: Int -> GmHeap -> GmStack -> GmStack
+rearrange n heap as = take n as' ++ drop n as
+  where as' = map (getArg. hLookup heap) $ tail as
 
 dispatch :: Instruction -> GmState -> GmState
 dispatch (Pushglobal f) = pushglobal f
