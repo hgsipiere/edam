@@ -16,8 +16,6 @@ packAExprPrsTest = parse prsAExpr "" "Pack{ 15, 0}" `shouldParse` EConstr 15 0
 
 letPrsTest = parse prsLet "" "let <x = 5> 2" `shouldParse`
  (ELet nonRecursive [("x",ENum 5)] $ ENum 2)
--- this need not be recursive because it isn't like the parser typechecks
--- with an environment or prelude
 letrecPrsTest = parse prsLetrec "" "letrec <telle = x y> 12" `shouldParse`
  (ELet recursive [("telle",EAp (EVar "x") (EVar "y"))] $ ENum 12)
 casePrsTest = parse prsCase "" "|x| <1> hello -> 2" `shouldParse`
@@ -59,12 +57,14 @@ prettyPrintingTests = describe "pretty printing" $ do
     it "pretty print ENum 19" numPpTest
     it "pretty print EConstr 17 12" packPpTest
     it "pretty print EAp (EVar \"id\") (EVar \"x\")" appPpTest
-    -- abbreviate
     it "pretty print : let <x = 9> x" letPpTest
     it "pretty print : let <x = k; a = 9> x" letrecPpTest
     it "pretty print : multi-tag case" casePpTest
 
-
+-- TODO Tests for evaluation
+-- Laziness termination, let/letrec, enum, id/k application
+-- Termination can be found by seeing if the length of evaluation states is below
+-- some very large number; in a way this is also a crude performance benchmark.
 main :: IO ()
 main = hspec.parallel $ do
   parsingTests

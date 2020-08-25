@@ -19,7 +19,7 @@ spaceConsumer :: Parser ()
 spaceConsumer = L.space space1
   (L.skipLineComment "#") (L.skipBlockComment "(:" ":)")
 
--- how to consume space after! given parser
+-- do the given parser and remove space/comments after parser (and not before)
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme spaceConsumer
 
@@ -86,6 +86,7 @@ prsDefns = do
   defns <- many $ symbol ";" *> prsDefn
   return $ defn:defns
 
+-- example: let/letrec <x = 5> x === 5
 prsLet = do
   symbol "let"
   defns <- chevrons prsDefns
@@ -102,7 +103,6 @@ prsLetrec = do
 -- because then the grammar becomes left recursive
 prsApp = mkApChain <$> some prsAExpr
 
--- this is a seperate function for testing purposes
 prsParensExpr = parens prsExpr
 
 prsAExpr = prsVar <|> prsNum <|> prsPack <|> prsParensExpr

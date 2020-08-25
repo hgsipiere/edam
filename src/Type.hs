@@ -58,6 +58,8 @@ data Instruction
  | MkAp
  | Update Int
  | Pop Int
+ | Slide Int
+ | Alloc Int
  deriving (Show, Eq)
 
 data Node
@@ -83,6 +85,7 @@ type GmState =
    GmGlobals, -- global addresses in heap
    GmStats)   -- statistics
 
+-- TODO Refactor with lens/generic-lens
 getCode :: GmState -> GmCode
 getCode (i, _, _, _, _) = i
 
@@ -120,12 +123,22 @@ statIncSteps s = s+1
 statGetSteps s = s
 
 -- Utilities
+
+-- Recursion schemes (I should use these)
+para :: (a -> [a] -> b -> b) -> b -> [a] -> b
+para c k (x : xs) = c x xs (para c k xs)
+para c k []       = k
+
+cata :: (a -> b -> b) -> b -> [a] -> b
+cata c k (x : xs) = c x (cata c k xs)
+cata c k [] = k
+
 -- (# of objects in the heap, unused addresses, [(address, object)])
 type Heap a = (Int, [Int], [(Int, a)])
 type Addr = Int
 
 hInitial :: Heap a
--- (0 objects in heap, address 1 .. infty, no allocations
+-- (0 objects in heap, address 1 .. infty, no allocations)
 hInitial = (0, [1..], [])
 
 -- allocate n to heap, return new heap and address where n is allocated
@@ -148,12 +161,13 @@ remove ((a',n):cts) a | a == a' = cts
                       | a /= a' = (a',n) : remove cts a
 
 type Assoc a b = [(a,b)] -- association list, associates keys to values
--- def is practically only used to call error
+-- def is practically only used to call error, not at all safe
 aLookup [] k' def = def
 aLookup ((k,v):bs) k' def | k == k' = v
                           | k /= k' = aLookup bs k' def
 
-aReplace [] _ def = def
+
+aReplace [] _ def = def -- cata? but error
 aReplace ((k,v):bs) (k',v') def | k == k' = (k',v'): bs
                                 | k /= k' = (k,v)  : aReplace bs (k',v') def
 
@@ -165,15 +179,11 @@ aDomain = map fst
 aRange = map snd
 aEmpty = []
 
--- this should be a recursion scheme, and work with non empty lists
+-- this could be a recursion scheme, and work with non empty lists
 mkApChain :: [CoreExpr] -> CoreExpr
 mkApChain (expr:rest@(_:_)) = EAp expr $ mkApChain rest
 mkApChain [x] = x
 mkApChain [] = error "empty app chain"
-
--- Pretty printing, this is in type so that the Show does not
--- have to be either defined via cyclical imports with a pp module
--- or that the show is defined a more 'mixing' module
 
 -- Format core expressions as document
 ppDefn (name, value) = pretty name <+> pretty "=" <+> ppExpr value
@@ -196,13 +206,13 @@ ppAlt (tag,args,expr) = (pretty "<" <> pretty tag <> pretty ">") <+>
 
 -- Format state machine types as document
 ppStats :: GmState -> Doc ann
-ppStats s = pretty "Steps taken = " <> (pretty.statGetSteps.getStats $ s)
+ppStats s = pretty "Steps taken (if terminating) = " <> (pretty.statGetSteps.getStats $ s)
 
 ppNode :: GmState -> Addr -> Node -> Doc ann
 ppNode _ _ (NNum n) = pretty n
 ppNode s a (NGlobal _ g) = pretty "Global " <> pretty v
   where v = head [n | (n,b) <- getGlobals s, a == b]
-  -- look through the globals by address to find the correct one
+  -- print globals by matching address lookup
 ppNode _ _ (NAp a1 a2) = pretty "Ap" <+> pretty a1 <+> pretty a2
 ppNode _ _ (NInd a) = pretty "NInd" <+> pretty a
 
@@ -210,10 +220,9 @@ ppStackItem :: GmState -> Addr -> Doc ann
 ppStackItem s a = pretty a <> pretty ": " <> ppNode s a (hLookup (getHeap s) a)
 
 ppStack :: GmState -> Doc ann
--- print the stack items by printing (partially applied to the stack)
--- by the addresses looked up in the heap
-ppStack s = pretty " Stack:[" <> nest 2 (vsep (map (ppStackItem s) reversedStack)) <> pretty "]"
-  where reversedStack = reverse $ getStack s
+ppStack state = pretty " Stack:[" <> nest 2 (vsep (map (ppStackItem state) reversedStack)) <> pretty "]"
+  where reversedStack = reverse $ getStack state
+  -- reversed so you pop off from the bottom, stable aesthetics
 
 ppInstruction :: Instruction -> Doc ann
 ppInstruction Unwind = pretty "Unwind"
@@ -223,6 +232,8 @@ ppInstruction (Pushint n) = pretty "Pushint" <+> pretty n
 ppInstruction MkAp = pretty "MkAp"
 ppInstruction (Update n) = pretty "Update" <+> pretty n
 ppInstruction (Pop n) = pretty "Pop" <+> pretty n
+ppInstruction (Slide n) = pretty "Slide" <+> pretty n
+ppInstruction (Alloc n) = pretty "Alloc" <+> pretty n
 
 ppInstructions :: GmCode -> Doc ann
 ppInstructions is = pretty "  Code:{" <> (nest 2 $ vsep (map ppInstruction is)) <> pretty "}" <> hardline
@@ -234,15 +245,16 @@ ppSC s (name, addr) = pretty "Code for " <> pretty name <> hardline <> ppInstruc
 ppState :: GmState -> Doc ann
 ppState s = ppStack s <> hardline <> ppInstructions (getCode s) <> hardline
 
--- list length limiter
-limitList 0 (x:xs) = []
+limitList 0 (x:xs) = [] -- recursion scheme?
 limitList n (x:xs) = x:limitList (n-1) xs
 limitList k [] = []
 
 ppResults :: [GmState] -> Doc ann
-ppResults states@(s:ss) =
+ppResults states@(state:ss) =
   pretty "Supercombinator definitions" <> hardline <>
-  vsep (map (ppSC s) (getGlobals s)) <> hardline <> hardline <>
+  vsep (map (ppSC state) (getGlobals state)) <> hardline <> hardline <>
  pretty "State transitions" <> hardline <> hardline <>
- vsep (map ppState (limitList 1000 states)) <> hardline <> hardline <>
- ppStats (last states)
+ -- we limit the length because often breaking changes cause infinite loops
+ vsep (map ppState limitedStates) <> hardline <> hardline <>
+ ppStats (last limitedStates)
+   where limitedStates = limitList 10000 states
