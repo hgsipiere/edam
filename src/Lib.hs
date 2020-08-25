@@ -305,12 +305,16 @@ compileLet' ((name,expr):defs) env
   -- so the environment requires adjusting.
   = compileC expr env ++ compileLet' defs (argOffset 1 env)
 
--- This scheme has been implemented by me (Ex 3.16) but I don't know why it works yet.
+-- letrec <x_1 = e_1; x_n = e_n> expr
+-- Each x_j is to be defined in an indirection so we allocate dummy indirections (-1 address)
+-- Then what we do is compile each expression with a differing environment each time
+-- then after expression compilation we point the evaluated value to one of the dummy indirections
+-- after all this you just clean up the stack by getting rid of all the x_j originals
+-- since they are in indirections
 compileLetrec :: GmCompiler -> [CoreDefn] -> GmCompiler -- ex 3.16
 compileLetrec comp defs expr env = [Alloc n] ++ compileLetrec' 1 defs env' ++ comp expr env' ++ [Slide n]
   where n = length defs
         env' = compileArgs defs env
-
 compileLetrec' :: Int -> [CoreDefn] -> GmEnvironment -> GmCode
 compileLetrec' _ [] _ = []
 compileLetrec' k ((name,expr):defs) env = compileC expr env ++ [Update (n-k)] ++ compileLetrec' (k+1) defs env
