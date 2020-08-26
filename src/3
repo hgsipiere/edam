@@ -84,23 +84,22 @@ data GmState = GmState
     getHeap :: GmHeap,
     getGlobals :: GmGlobals,
     getStats :: GmStats }
+  
 
--- TODO Refactor with lens/generic-lens, none of this code is necesasry
--- the original code uses a quintuple but record syntax generates get functions
-putCode :: GmCode -> GmState -> GmState
+-- TODO Refactor with lens/generic-lens
+putCode :: GmCode -> GmState -> GmState 
 putCode i' (GmState i stack heap globals stats) = GmState i' stack heap globals stats
-
 putStack :: GmStack -> GmState -> GmState
-putStack stack' (GmState i stack heap globals stats) = GmState i stack' heap globals stats
+putStack stack' (i, stack, heap, globals, stats) = (i, stack', heap, globals, stats)
 
 putHeap :: GmHeap -> GmState -> GmState
-putHeap heap' (GmState i stack heap globals stats) = GmState i stack heap' globals stats
+putHeap heap' (i, stack, heap, globals, stats) = (i, stack, heap', globals, stats)
 
 appendGlobal :: GmGlobal -> GmState -> GmState
-appendGlobal newGlobal (GmState i stack heap globals stats) = GmState i stack heap (newGlobal:globals) stats
+appendGlobal newGlobal (i,stack,heap,globals,stats) = (i,stack,heap, newGlobal:globals, stats)
 
 putStats :: GmStats -> GmState -> GmState
-putStats stats' (GmState i stack heap globals stats) = GmState i stack heap globals stats'
+putStats stats' (i, stack, heap, globals, stats) = (i, stack, heap, globals, stats')
 
 statInitial :: Int
 statInitial = 0
