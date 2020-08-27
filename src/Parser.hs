@@ -12,7 +12,8 @@ import qualified Text.Megaparsec.Char.Lexer as L
 
 import Type
 
-type Parser = Parsec Void Text
+type Parser = Parsec Void String
+
 
 -- happy comments
 spaceConsumer :: Parser ()
@@ -21,7 +22,7 @@ spaceConsumer = L.space space1
 
 -- do the given parser and remove space/comments after parser (and not before)
 lexeme :: Parser a -> Parser a
-lexeme = L.lexeme spaceConsumer
+lexeme = L.lexeme spaceConsumer 
 
 symbol = L.symbol spaceConsumer
 integer = lexeme L.decimal
@@ -101,10 +102,30 @@ prsLetrec = do
 
 -- this is like this rather than expr aexpr
 -- because then the grammar becomes left recursive
-prsApp = mkApChain <$> some prsAExpr
+--prsApp = mkApChain <$> do
+--some prsAExpr
+
+prsApp = do
+  func <- prsAExpr
+  args <- some prsAExpr
+  return (mkApChain $ args ++ [func])
 
 prsParensExpr = parens prsExpr
 
 prsAExpr = prsVar <|> prsNum <|> prsPack <|> prsParensExpr
 -- do not parse lambdas until I get to lambda lifting for convenience
 prsExpr = prsLet <|> prsLetrec <|> prsCase <|> prsApp <|> prsAExpr
+
+-- sc -> var var_1 ... var_n = expr
+prsSC :: Parser CoreScDefn
+prsSC = do
+  name <- prsIdent
+  args <- many prsIdent
+  symbol "="
+  definition <- prsExpr
+  symbol "\n"
+  return $ (name, args, definition)
+
+-- program -> sc_1; ...; sc_n
+prsProg :: Parser CoreProgram
+prsProg = many prsSC

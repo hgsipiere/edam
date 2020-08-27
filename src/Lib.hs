@@ -5,11 +5,24 @@ module Lib
     ) where
 
 import Data.List (mapAccumL)
+--import Data.Text (unpack)
+import Text.Megaparsec
+import Safe
+import System.Environment
+
 import Type
+import Parser (prsProg)
 
 mainFunc :: IO ()
-mainFunc = putStrLn k
+mainFunc = do
+  args <- getArgs
+  sourceCode <- readFile (args !! 0)
+  putStrLn.present.(fmap $ show.ppResults.eval.compile) $ runParser prsProg "" sourceCode
+  --putStrLn.present.(fmap $ show) $ runParser prsProg "" sourceCode
+  --putStrLn k
 
+present (Left x) = errorBundlePretty x
+present (Right x) = x
 -- Mk6 implements output so then write tests for these, for now it is awkward.
 --prog = [("main", [],
 --  EAp
@@ -44,7 +57,8 @@ mainFunc = putStrLn k
 
   (EAp (EAp (EVar "fix") (EVar "i")) (ENum 12)))] -}
 
-prog = [("main", [], EAp (EVar "i") (ENum 12))]
+--prog = [("main", [], EAp (EVar "i") (ENum 12))]
+prog = [("main", [], EAp (EAp (EVar "plus") (ENum 12)) (ENum 17))]
 
 
 k = show.ppResults.eval.compile $ prog
@@ -63,11 +77,73 @@ doAdmin :: GmState -> GmState
 doAdmin s = putStats (statIncSteps $ getStats s) s
 
 -- State transition description
--- [instructions] [stack] [heap] [globals]
--- => [instructions'] [stack'] [heap'] [globals']
+-- [instructions] [stack] [dump] [heap] [globals]
+-- => [instructions'] [stack'] [dump] [heap'] [globals']
 
--- Pushglobal f:i   s h m[f:a]
--- =>           i a:s h m
+boxInteger :: Int -> GmState -> GmState
+boxInteger n state = putStack (a: getStack state) (putHeap h' state)
+  where (h', a) = hAlloc (getHeap state) (NNum n)
+
+unboxInteger :: Addr -> GmState -> Int
+unboxInteger a state
+  = ub $ hLookup (getHeap state) a
+  where ub (NNum i) = i
+        ub n = error "Unboxing a non-integer"
+
+primitive1 :: (b -> GmState -> GmState) -- boxing function
+              -> (Addr -> GmState -> a) -- unboxing function
+              -> (a -> b)               -- operator
+              -> (GmState -> GmState)   -- state transition
+primitive1 box unbox op state = box (op (unbox a state)) (putStack as state)
+  where (a:as) = getStack state
+
+primitive2 :: (b -> GmState -> GmState)
+              -> (Addr -> GmState -> a)
+              -> (a -> a -> b)
+              -> (GmState -> GmState)
+primitive2 box unbox op state = box (op (unbox a0 state) (unbox a1 state)) state
+  where (a0:a1:as) = getStack state
+  
+
+-- (*):i a_0:a_1:s d h[a_0:NNum n_0, a_1:NNum n_1] m
+-- =>  i       a:s d h[a:NNum (n_0 (*) n_1)]       m
+-- Dyadic arithmetic operations - (*) is abstract
+arithmetic2 :: (Int -> Int -> Int) -> (GmState -> GmState)
+arithmetic2 = primitive2 boxInteger unboxInteger
+
+add, mul, sub, divG :: GmState -> GmState
+add = arithmetic2 (+)
+sub = arithmetic2 (-)
+mul = arithmetic2 (*)
+divG = arithmetic2 div
+
+-- Neg:i a :s d h[a:NNum n]    m
+-- =>  i a':s d h[a':NNum(-n)] m
+arithmetic1 :: (Int -> Int) -> (GmState -> GmState)
+arithmetic1 = primitive1 boxInteger unboxInteger
+
+neg :: GmState -> GmState
+neg = arithmetic1 (0-)
+
+-- (`compare`):i a_0:a_1:s d h[a_0:NNum n_0, a_1:NNum n_1] m
+-- =>          i       a:s d h[a:NNum (n_0 `compare` n_1)] m
+boxBoolean :: Bool -> GmState -> GmState
+boxBoolean b state = putStack (a: getStack state) (putHeap h' state)
+  where (h',a) = hAlloc (getHeap state) (NNum b')
+        b'| b         = 1
+           | otherwise = 0
+
+comparison :: (Int -> Int -> Bool) -> GmState -> GmState
+comparison = primitive2 boxBoolean unboxInteger
+eq = comparison (==)
+neq = comparison (/=)
+lt = comparison (<)
+le = comparison (<=)
+gt = comparison (>)
+ge = comparison (>=)
+
+-- Pushglobal f:i   s d h m[f:a]
+-- =>           i a:s d h m
 pushglobal f state = putStack (a: getStack state) state
   where a = aLookup (getGlobals state) f (error $ "Undeclared global " ++ f)
 
@@ -156,9 +232,48 @@ allocNodes n_plus_1 heap = (heap2, (a:as))
         (heap1, as) = allocNodes (n_plus_1 - 1) heap
         (heap2, a) = hAlloc heap1 (NInd hNull)
 
+-- (Cond: i_1 i_2):i a:s d h[a:NNum 1] m
+-- =>    i_1 ++ i      s d h           m
+--
+-- (Cond i_1 i_2):i a:s d h[a:NNum 0] m
+-- =>   i_2++i        s d h           m
+-- conditional if statement, 0 is False, 1 is True
+-- depending on boolean append differing instructions
+cond :: GmState -> GmState
+cond state = case statement of
+  NNum 1 -> putCode (i_1 ++ i) state
+  NNum 0 -> putCode (i_2 ++ i) state
+  otherwise -> error "non boolean number node"
+  where (Cond i_1 i_2:i) = getCode state
+        (a:s) = getStack state
+        statement = hLookup (getHeap state) a
+
+-- Eval:i       a :s       d h m
+-- => [Unwind] [a]   <i,s>:d h m
+-- To force weak head normal form we unwind with only the top of the stack
+-- then this evaluates to an expression and we end up rewinding again
+-- so then this puts the dump back on the stack.
+
+evalG :: GmState -> GmState
+evalG state = putCode [Unwind] $ putStack [a] $ appendDump (i,s) state
+  where (a:s) = getStack state
+        i = case getCode state of
+          [] -> []
+          (x:xs) -> xs -- this fixed a random bug but I'm not
+          -- sure this is a solution. the problem is that after
+          -- pushing the global main, then doing eval
+          -- there is only one instruction so nothing for the dump
+          -- This seems to work because when there is one instruction
+          -- it seems s is empty usually in that case but
+          -- I should probably check
+
 -- [Unwind] a:s h[a:NNum n] m
 -- =>    [] a:s h           m
 -- Unwinding the stack finished if number result
+--
+-- [Unwind] a:s  <i',s'>:d h[a:NNum n] m
+-- =>    i' a:s'         d h           m
+-- When we have stuff in the dump and about to finish, run the dump.
 --
 --    [Unwind]     a:s h[a:NAp a_1 a_2] m
 -- => [Unwind] a_1:a:s h                m
@@ -182,16 +297,18 @@ allocNodes n_plus_1 heap = (heap2, (a:as))
 -- If there is an indirection to a' at a, replace a with a'
 unwind :: GmState -> GmState
 unwind state = newState $ hLookup heap a
-  where mapn n f xs = map f (take n xs) ++ drop n xs
-        (a:as) = getStack state
+ where  (a:s) = getStack state
         heap   = getHeap state
-        newState (NNum n) = state
-        newState (NAp a1 a2) = putCode [Unwind] (putStack (a1:a:as) state)
+        dump = getDump state
+        newState (NNum n) = case dump of
+          ((i',s'):d) -> (putDump d).(putCode i').(putStack (a:s')) $ state
+          []          -> state
+        newState (NAp a1 a2) = putCode [Unwind] (putStack (a1:a:s) state)
         newState (NGlobal n c)
-          | length as < n = error "Unwinding with too few arguments"
+          | length s < n = error "Unwinding with too few arguments"
           | otherwise     = let stack' = rearrange n (getHeap state) (getStack state) in
                             putCode c $ putStack stack' state
-        newState (NInd a') = putCode [Unwind] (putStack (a':as) state)
+        newState (NInd a') = putCode [Unwind] (putStack (a':s) state)
 
 -- As given by SPJ in the book, this takes the stack a_0:...:a_n:s to a_1:...:a_n:s then
 -- maps to the argument of the application referred to by each address like the unwind except s
@@ -199,7 +316,7 @@ rearrange :: Int -> GmHeap -> GmStack -> GmStack
 rearrange n heap as = take n as' ++ drop n as
   where as' = map (getArg. hLookup heap) $ tail as
 
-dispatch :: Instruction -> GmState -> GmState
+dispatch :: Instr -> GmState -> GmState
 dispatch (Pushglobal f) = pushglobal f
 dispatch (Pushint n) = pushint n
 dispatch MkAp = mkap
@@ -209,6 +326,7 @@ dispatch (Update n) = update n
 dispatch (Pop n) = pop n
 dispatch (Alloc n) = alloc n
 dispatch Unwind = unwind
+dispatch Eval = evalG
 
 step :: GmState -> GmState
 step state = dispatch i (putCode is state)
@@ -320,15 +438,28 @@ compileLetrec' _ [] _ = []
 compileLetrec' k ((name,expr):defs) env = compileC expr env ++ [Update (n-k)] ++ compileLetrec' (k+1) defs env
   where n = length defs + k
 
-compile program = GmState initialCode [] heap globals statInitial
+compile program = GmState initialCode [] [] heap globals statInitial
   where (heap, globals) = buildInitialHeap program
-        initialCode = [Pushglobal "main", Unwind]
+        initialCode = [Pushglobal "main", Eval]
 
 -- put all the super combinators in the heap and provide an association map from names to addresses
 buildInitialHeap :: CoreProgram -> (GmHeap, GmGlobals)
 buildInitialHeap program = mapAccumL allocateSc hInitial compiledWPrelude
   where compiled = map compileSc program
-        compiledPrimitives = [] -- Nothing at the moment
+        compiledPrimitives =
+          [("plus", 2, [Push 1, Eval, Push 1, Eval, Add, Update 2, Pop 2, Unwind]),
+           ("sub", 2,  [Push 1, Eval, Push 1, Eval, Sub, Update 2, Pop 2, Unwind]),
+           ("mul", 2,  [Push 1, Eval, Push 1, Eval, Mul, Update 2, Pop 2, Unwind]),
+           ("div", 2,  [Push 1, Eval, Push 1, Eval, Div, Update 2, Pop 2, Unwind]),
+           ("negate", 1, [Push 0, Eval, Neg, Update 1, Pop 1, Unwind]),
+           ("eq", 2,  [Push 1, Eval, Push 1, Eval, Eq, Update 2, Pop 2, Unwind]),
+           ("neq", 2, [Push 1, Eval, Push 1, Eval, Neq, Update 2, Pop 2, Unwind]),
+           ("lt", 2,  [Push 1, Eval, Push 1, Eval, Lt, Update 2, Pop 2, Unwind]),
+           ("le", 2,  [Push 1, Eval, Push 1, Eval, Le, Update 2, Pop 2, Unwind]),
+           ("gt", 2,  [Push 1, Eval, Push 1, Eval, Gt, Update 2, Pop 2, Unwind]),
+           ("ge", 2,  [Push 1, Eval, Push 1, Eval, Ge, Update 2, Pop 2, Unwind]),
+           ("if", 3, [Push 0, Eval, Cond [Push 1] [Push 2], Update 3, Pop 3, Unwind])
+           ]
         compiledWPrelude = (compileSc <$> preludeDefs) ++ compiled ++ compiledPrimitives
 
 allocateSc :: GmHeap -> GmCompiledSc -> (GmHeap, (Name, Addr))

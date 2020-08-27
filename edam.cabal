@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: bfa74f8fe29fda6623f6e8a4b84bdd54988cbc49e4d90e46aee5829c1f1c00cf
+-- hash: d5199e097ecfbeee14bfc1abf56119ca160ae3ae4262e88870fddd9bfc2c2fcc
 
 name:           edam
 version:        0.1.0.0
@@ -42,6 +42,7 @@ library
     , megaparsec >=8.0.0 && <9
     , mtl ==2.2.2
     , prettyprinter >=1.7.0 && <1.8
+    , safe ==0.3.19
     , text ==1.2.4.0
   default-language: Haskell2010
 
@@ -60,6 +61,7 @@ executable edam-exe
     , megaparsec >=8.0.0 && <9
     , mtl ==2.2.2
     , prettyprinter >=1.7.0 && <1.8
+    , safe ==0.3.19
     , text ==1.2.4.0
   default-language: Haskell2010
 
@@ -79,5 +81,6 @@ test-suite edam-test
     , megaparsec >=8.0.0 && <9
     , mtl ==2.2.2
     , prettyprinter >=1.7.0 && <1.8
+    , safe ==0.3.19
     , text ==1.2.4.0
   default-language: Haskell2010

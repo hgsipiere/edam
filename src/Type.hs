@@ -50,7 +50,7 @@ type Program a = [ScDefn a]
 type CoreProgram = Program Name
 -- G Machine types
 
-data Instruction
+data Instr
  = Unwind
  | Pushglobal Name
  | Pushint Int
@@ -60,6 +60,10 @@ data Instruction
  | Pop Int
  | Slide Int
  | Alloc Int
+ | Eval
+ | Add | Sub | Mul | Div | Neg
+ | Eq | Neq | Lt | Le | Gt | Ge
+ | Cond GmCode GmCode
  deriving (Show, Eq)
 
 data Node
@@ -71,36 +75,46 @@ data Node
 getArg :: Node -> Addr
 getArg (NAp a1 a2) = a2
 
-type GmCode = [Instruction]
+type GmCode = [Instr]
 type GmStack = [Addr]
+type GmDump = [GmDumpItem]
+type GmDumpItem = (GmCode, GmStack)
 type GmHeap = Heap Node
 type GmGlobal = (Name,Addr)
 type GmGlobals = Assoc Name Addr
 type GmStats = Int
 
+-- Refactor with lens to get rid of all the code and give
+-- records code, stack, ... etc names then use
+-- named pun fields for concision. This can get rid of
+-- stack = getHeap state etc...
 data GmState = GmState
   { getCode :: GmCode,
     getStack :: GmStack,
+    getDump :: GmDump,
     getHeap :: GmHeap,
     getGlobals :: GmGlobals,
     getStats :: GmStats }
 
--- TODO Refactor with lens/generic-lens, none of this code is necesasry
--- the original code uses a quintuple but record syntax generates get functions
 putCode :: GmCode -> GmState -> GmState
-putCode i' (GmState i stack heap globals stats) = GmState i' stack heap globals stats
+putCode i' (GmState i stack dump heap globals stats) = GmState i' stack dump heap globals stats
 
 putStack :: GmStack -> GmState -> GmState
-putStack stack' (GmState i stack heap globals stats) = GmState i stack' heap globals stats
+putStack stack' (GmState i stack dump heap globals stats) = GmState i stack' dump heap globals stats
 
 putHeap :: GmHeap -> GmState -> GmState
-putHeap heap' (GmState i stack heap globals stats) = GmState i stack heap' globals stats
+putHeap heap' (GmState i stack dump heap globals stats) = GmState i stack dump heap' globals stats
+
+putDump :: GmDump -> GmState -> GmState
+putDump dump' (GmState i stack dump heap globals stats) = GmState i stack dump' heap globals stats
+appendDump :: GmDumpItem -> GmState -> GmState
+appendDump dumpItem state = putDump (dumpItem : (getDump state)) state
 
 appendGlobal :: GmGlobal -> GmState -> GmState
-appendGlobal newGlobal (GmState i stack heap globals stats) = GmState i stack heap (newGlobal:globals) stats
+appendGlobal newGlobal (GmState i stack dump heap globals stats) = GmState i stack dump heap (newGlobal:globals) stats
 
 putStats :: GmStats -> GmState -> GmState
-putStats stats' (GmState i stack heap globals stats) = GmState i stack heap globals stats'
+putStats stats' (GmState i stack dump heap globals stats) = GmState i stack dump heap globals stats'
 
 statInitial :: Int
 statInitial = 0
@@ -210,26 +224,55 @@ ppStack state = pretty " Stack:[" <> nest 2 (vsep (map (ppStackItem state) rever
   where reversedStack = reverse $ getStack state
   -- reversed so you pop off from the bottom, stable aesthetics
 
-ppInstruction :: Instruction -> Doc ann
-ppInstruction Unwind = pretty "Unwind"
-ppInstruction (Pushglobal f) = pretty "Pushglobal" <+> pretty f
-ppInstruction (Push n) = pretty "Push" <+> pretty n
-ppInstruction (Pushint n) = pretty "Pushint" <+> pretty n
-ppInstruction MkAp = pretty "MkAp"
-ppInstruction (Update n) = pretty "Update" <+> pretty n
-ppInstruction (Pop n) = pretty "Pop" <+> pretty n
-ppInstruction (Slide n) = pretty "Slide" <+> pretty n
-ppInstruction (Alloc n) = pretty "Alloc" <+> pretty n
+ppShortStack :: GmStack -> Doc ann
+ppShortStack stack = encloseSep lbracket rbracket (pretty ", ") (map pretty stack)
 
-ppInstructions :: GmCode -> Doc ann
-ppInstructions is = pretty "  Code:{" <> (nest 2 $ vsep (map ppInstruction is)) <> pretty "}" <> hardline
+ppDump :: GmState -> Doc ann
+ppDump s = pretty "  Dump:[" <> hardline <> nest 2 (vsep (map ppDumpItem (reverse $ getDump s))) <> pretty "]"
+
+ppDumpItem :: GmDumpItem -> Doc ann
+ppDumpItem (code, stack) = langle <> ppShortInstrs 3 code <> pretty ", " <> ppShortStack stack <> rangle
+
+ppInstr :: Instr -> Doc ann
+ppInstr Unwind = pretty "Unwind"
+ppInstr (Pushglobal f) = pretty "Pushglobal" <+> pretty f
+ppInstr (Push n) = pretty "Push" <+> pretty n
+ppInstr (Pushint n) = pretty "Pushint" <+> pretty n
+ppInstr MkAp = pretty "MkAp"
+ppInstr (Update n) = pretty "Update" <+> pretty n
+ppInstr (Pop n) = pretty "Pop" <+> pretty n
+ppInstr (Slide n) = pretty "Slide" <+> pretty n
+ppInstr (Alloc n) = pretty "Alloc" <+> pretty n
+ppInstr Eval = pretty "Eval"
+ppInstr Add = pretty "Add"
+ppInstr Sub = pretty "Sub"
+ppInstr Mul = pretty "Mul"
+ppInstr Div = pretty "Div"
+ppInstr Neg = pretty "Neg"
+ppInstr Eq = pretty "Eq"
+ppInstr Neq = pretty "Neq"
+ppInstr Lt = pretty "Lt"
+ppInstr Le = pretty "Le"
+ppInstr Gt = pretty "Gt"
+ppInstr Ge = pretty "Ge"
+ppInstr (Cond a b) = pretty "Cond" <+> encloseSep lbrace rbrace comma (map ppInstr a) <+> encloseSep lbrace rbrace comma (map ppInstr b)
+
+
+ppInstrs :: GmCode -> Doc ann
+ppInstrs is = pretty "  Code:{" <> (nest 2 $ vsep (map ppInstr is)) <> pretty "}" <> hardline
+
+ppShortInstrs :: Int -> GmCode -> Doc ann
+ppShortInstrs n code = encloseSep lbrace rbrace (pretty "; ") dotcodes
+  where codes = map ppInstr (take n code)
+        dotcodes | length code > n = codes <> [pretty "..."]
+                 | otherwise       = codes
 
 ppSC :: GmState -> (Name, Addr) -> Doc ann
-ppSC s (name, addr) = pretty "Code for " <> pretty name <> hardline <> ppInstructions code <> hardline
+ppSC s (name, addr) = pretty "Code for " <> pretty name <> hardline <> ppInstrs code <> hardline
   where (NGlobal name code) = hLookup (getHeap s) addr
 
 ppState :: GmState -> Doc ann
-ppState s = ppStack s <> hardline <> ppInstructions (getCode s) <> hardline
+ppState s = ppStack s <> hardline <> ppDump s <> hardline <> ppInstrs (getCode s) <> hardline
 
 limitList 0 (x:xs) = [] -- recursion scheme?
 limitList n (x:xs) = x:limitList (n-1) xs
@@ -243,4 +286,4 @@ ppResults states@(state:ss) =
  -- we limit the length because often breaking changes cause infinite loops
  vsep (map ppState limitedStates) <> hardline <> hardline <>
  ppStats (last limitedStates)
-   where limitedStates = limitList 10000 states
+   where limitedStates = limitList 1000 states
