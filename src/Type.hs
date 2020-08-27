@@ -60,6 +60,10 @@ data Instruction
  | Pop Int
  | Slide Int
  | Alloc Int
+ | Eval
+ | Add | Sub | Mul | Div | Neg
+ | Eq | Neq | Lt | Le | Gt | Ge
+ | Cond GmCode GmCode
  deriving (Show, Eq)
 
 data Node
@@ -95,6 +99,9 @@ putCode i' state = state {getCode = i'}
 
 putStack :: GmStack -> GmState -> GmState
 putStack stack' state = state {getStack = stack'}
+
+putDump :: GmDump -> GmState -> GmState
+putDump dump' state = state {getDump = dump'}
 
 putHeap :: GmHeap -> GmState -> GmState
 putHeap heap' state = state {getHeap = heap'}
@@ -196,7 +203,6 @@ ppExpr (ECase match alts) = pretty "case" <+> ppExpr match <+> pretty "of "
 ppAlt (tag,args,expr) = (pretty "<" <> pretty tag <> pretty ">") <+>
   encloseSep mempty mempty space (map pretty args) <+> pretty "->" <+>
   ppExpr expr
-
 -- Format state machine types as document
 ppStats :: GmState -> Doc ann
 ppStats s = pretty "Steps taken (if terminating) = " <> (pretty.statGetSteps.getStats $ s)
@@ -209,13 +215,21 @@ ppNode s a (NGlobal _ g) = pretty "Global " <> pretty v
 ppNode _ _ (NAp a1 a2) = pretty "Ap" <+> pretty a1 <+> pretty a2
 ppNode _ _ (NInd a) = pretty "NInd" <+> pretty a
 
+ppSC :: GmState -> (Name, Addr) -> Doc ann
+ppSC s (name, addr) = pretty "Code for " <> pretty name <> hardline <> ppInstructions code <> hardline
+  where (NGlobal name code) = hLookup (getHeap s) addr
+
 ppStackItem :: GmState -> Addr -> Doc ann
 ppStackItem s a = pretty a <> pretty ": " <> ppNode s a (hLookup (getHeap s) a)
+
+ppShortStack :: GmStack -> Doc ann
+ppShortStack stack = encloseSep lbracket rbracket (pretty ", ") (map pretty stack)
 
 ppStack :: GmState -> Doc ann
 ppStack state = pretty " Stack:[" <> nest 2 (vsep (map (ppStackItem state) reversedStack)) <> pretty "]"
   where reversedStack = reverse $ getStack state
   -- reversed so you pop off from the bottom, stable aesthetics
+
 
 ppInstruction :: Instruction -> Doc ann
 ppInstruction Unwind = pretty "Unwind"
@@ -227,17 +241,36 @@ ppInstruction (Update n) = pretty "Update" <+> pretty n
 ppInstruction (Pop n) = pretty "Pop" <+> pretty n
 ppInstruction (Slide n) = pretty "Slide" <+> pretty n
 ppInstruction (Alloc n) = pretty "Alloc" <+> pretty n
+ppInstruction Eval = pretty "Eval"
+ppInstruction Add = pretty "Add"
+ppInstruction Sub = pretty "Sub"
+ppInstruction Mul = pretty "Mul"
+ppInstruction Div = pretty "Div"
+ppInstruction Neg = pretty "Neg"
+ppInstruction Eq = pretty "Eq"
+ppInstruction Neq = pretty "Neq"
+ppInstruction Lt = pretty "Lt"
+ppInstruction Le = pretty "Le"
+ppInstruction Gt = pretty "Gt"
+ppInstruction Ge = pretty "Ge"
+
+ppShortInstructions :: Int -> GmCode -> Doc ann
+ppShortInstructions n code = encloseSep lbrace rbrace (pretty "; ") dotcodes
+  where codes = map ppInstruction (take n code)
+        dotcodes | length code > n = codes ++  [pretty "..."]
+                 | otherwise       = codes
 
 ppInstructions :: GmCode -> Doc ann
 ppInstructions is = pretty "  Code:{" <> (nest 2 $ vsep (map ppInstruction is)) <> pretty "}" <> hardline
 
-ppSC :: GmState -> (Name, Addr) -> Doc ann
-ppSC s (name, addr) = pretty "Code for " <> pretty name <> hardline <> ppInstructions code <> hardline
-  where (NGlobal name code) = hLookup (getHeap s) addr
+ppDumpItem :: GmDumpItem -> Doc ann
+ppDumpItem (code, stack) = langle <> ppShortInstructions 3 code <> pretty ", " <> ppShortStack stack <> rangle
+
+ppDump :: GmState -> Doc ann
+ppDump s = nest 4 (pretty "Dump:[" <> vsep (map ppDumpItem (reverse.getDump $ s)) <> rangle)
 
 ppState :: GmState -> Doc ann
-ppState s = ppStack s <> hardline <> ppInstructions (getCode s) <> hardline
-
+ppState s = ppStack s <> hardline <> ppDump s <> hardline <> ppInstructions (getCode s) <> hardline
 
 ppResults :: [GmState] -> Doc ann
 ppResults states@(state:ss) =
