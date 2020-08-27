@@ -8,48 +8,8 @@ import Type
 mainFunc :: IO ()
 mainFunc = putStrLn k
 
--- Mk6 implements output so then write tests for these, for now it is awkward.
-evalFinalNode :: CoreProgram -> Node
-evalFinalNode expr = hLookup (getHeap state) (head $ getStack state)
-  where state = (last.limitList 10000.eval.compile) $ expr
---prog = [("main", [],
---  EAp
---  (EAp (EVar "k") (ENum 9))
---  (ENum 9)
---  )]
-
---prog = [("main", [], 
---  ELet recursive [("x",EAp (EVar "i") (ENum 9))] (EVar "x")
---  )]
-
---prog = [("main", [],
---  EAp
---  (EAp (EAp (EVar "twice") (EVar "twice")) (EVar "i"))
---  (ENum 3))]
-
---prog = [
---  ("const3", ["x"], ENum 3),
---  ("y", ["f"],
---  ELet recursive
---  [("x",EAp (EVar "f") (EVar "x"))] (EVar "x")),
---  ("main", [], EAp (EVar "y") (EVar "const3"))
---  ]
-
-
-{-prog = [("main", [],
-  ELet recursive
-  [("fix2", ["f"],
-  EAp (EVar "f")
-  (EAp (EVar "fix") (EVar "f")))]
-
-
-  (EAp (EAp (EVar "fix") (EVar "i")) (ENum 12)))] -}
-
 prog = [("main", [], EAp (EVar "i") (ENum 12))]
-
-
 k = show.ppResults.eval.compile $ prog
--- fix f = f (fix f)
 
 preludeDefs = [
   ("i", ["x"], EVar "x"),

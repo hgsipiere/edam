@@ -9,6 +9,10 @@ import Lib
 import Type
 import Parser
 
+evalFinalNode :: CoreProgram -> Node
+evalFinalNode expr = hLookup (getHeap state) (head $ getStack state)
+  where state = (last.limitList 10000.eval.compile) $ expr
+
 to_main :: CoreExpr -> CoreProgram
 to_main expr = [("main",[],expr)]
 
@@ -20,6 +24,11 @@ appId10 = EAp (EVar "i") (ENum 10)
 letExpr = ELet False [("x", ENum 9)] (EVar "x")
 letrec = ELet True [("x", EVar "k"), ("a",ENum 9)] $ EAp (EAp (EVar "x") (EVar "a")) (ENum 12)
 caseExpr = ECase (EVar "n") [(1,["x"],ENum 9),(2,["x","y"],ENum 12)]
+
+fixConst3Prog = [
+  ("const3", ["x"], ENum 3),
+  ("fix", ["f"], EAp (EAp (EVar "fix") (EVar "const3")) (ENum 7)),
+  ("main", [], EAp (EAp (EVar "fix") (EVar "const3")) (ENum 12)) ]
 
 varPrsTest = parse prsVar "" "id_num9" `shouldParse` EVar "id_num9"
 numPrsTest = parse prsNum "" "912" `shouldParse` ENum 912
@@ -71,13 +80,15 @@ prettyPrintingTests = describe "pretty printing" $ do
 numEvalTest = (show.evalFinalNode.to_main $ num) `shouldBe` "NNum 19"
 appId10EvalTest = (show.evalFinalNode.to_main $ appId10) `shouldBe` "NNum 10"
 letExprEvalTest = (show.evalFinalNode.to_main $ letExpr) `shouldBe` "NNum 9"
-letrecEvalTest = (show.evalFinalNode.to_main $ letrec) `shouldBe` "NNum 9" 
+letrecEvalTest = (show.evalFinalNode.to_main $ letrec) `shouldBe` "NNum 9"
+fixConst3ProgTest = (show.evalFinalNode $ fixConst3Prog) `shouldBe` "NNum 3"
 
 evalTests = describe "evaluation" $ do
   it "eval, main = 19" numEvalTest
   it "eval, main = i 10" appId10EvalTest
   it "eval, main = let <x = 9> x" letExprEvalTest
   it "eval, main = letrec <x = k; a = 9> x a 12" letrecEvalTest
+  it "eval, fixConst3Prog" fixConst3ProgTest
 -- TODO Tests for evaluation
 -- Laziness termination, let/letrec, enum, id/k application
 -- Termination can be found by seeing if the length of evaluation states is below
