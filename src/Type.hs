@@ -73,6 +73,8 @@ getArg (NAp a1 a2) = a2
 
 type GmCode = [Instruction]
 type GmStack = [Addr]
+type GmDumpItem = (GmCode, GmStack)
+type GmDump = [GmDumpItem]
 type GmHeap = Heap Node
 type GmGlobal = (Name,Addr)
 type GmGlobals = Assoc Name Addr
@@ -81,6 +83,7 @@ type GmStats = Int
 data GmState = GmState
   { getCode :: GmCode,
     getStack :: GmStack,
+    getDump :: GmDump,
     getHeap :: GmHeap,
     getGlobals :: GmGlobals,
     getStats :: GmStats }
@@ -88,19 +91,19 @@ data GmState = GmState
 -- TODO Refactor with lens/generic-lens, none of this code is necesasry
 -- the original code uses a quintuple but record syntax generates get functions
 putCode :: GmCode -> GmState -> GmState
-putCode i' (GmState i stack heap globals stats) = GmState i' stack heap globals stats
+putCode i' state = state {getCode = i'}
 
 putStack :: GmStack -> GmState -> GmState
-putStack stack' (GmState i stack heap globals stats) = GmState i stack' heap globals stats
+putStack stack' state = state {getStack = stack'}
 
 putHeap :: GmHeap -> GmState -> GmState
-putHeap heap' (GmState i stack heap globals stats) = GmState i stack heap' globals stats
+putHeap heap' state = state {getHeap = heap'}
 
 appendGlobal :: GmGlobal -> GmState -> GmState
-appendGlobal newGlobal (GmState i stack heap globals stats) = GmState i stack heap (newGlobal:globals) stats
+appendGlobal newGlobal state =  state {getGlobals = newGlobal:getGlobals state}
 
 putStats :: GmStats -> GmState -> GmState
-putStats stats' (GmState i stack heap globals stats) = GmState i stack heap globals stats'
+putStats stats' state = state {getStats = stats'}
 
 statInitial :: Int
 statInitial = 0

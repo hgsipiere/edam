@@ -285,7 +285,7 @@ compileLetrec' _ [] _ = []
 compileLetrec' k ((name,expr):defs) env = compileC expr env ++ [Update (n-k)] ++ compileLetrec' (k+1) defs env
   where n = length defs + k
 
-compile program = GmState initialCode [] heap globals statInitial
+compile program = GmState initialCode [] [] heap globals statInitial
   where (heap, globals) = buildInitialHeap program
         initialCode = [Pushglobal "main", Unwind]
 
