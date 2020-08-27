@@ -103,6 +103,9 @@ putStack stack' state = state {getStack = stack'}
 putDump :: GmDump -> GmState -> GmState
 putDump dump' state = state {getDump = dump'}
 
+appendDump :: GmDumpItem -> GmState -> GmState
+appendDump dumpItem state = putDump (dumpItem: getDump state) state
+
 putHeap :: GmHeap -> GmState -> GmState
 putHeap heap' state = state {getHeap = heap'}
 

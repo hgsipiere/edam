@@ -119,9 +119,26 @@ allocNodes n_plus_1 heap = (heap2, (a:as))
         (heap1, as) = allocNodes (n_plus_1 - 1) heap
         (heap2, a) = hAlloc heap1 (NInd hNull)
 
+--      Eval:i a:s       d h m
+-- => [Unwind] [a] <i,s>:d h m
+-- Force weak head normal form by unwinding with only the top address on the stack
+-- this causes this value to be evaluated. There can be no lazy evaluation
+-- when there is only one thing to evaluate.
+--
+-- If you read step, it puts the instructions tail on the code so don't take the second tail
+evalG :: GmState -> GmState
+evalG state = putCode [Unwind].putStack [a].appendDump (i,s) $ state
+  where (a:s) = getStack state
+        i = getCode state
+
+
 -- [Unwind] a:s h[a:NNum n] m
 -- =>    [] a:s h           m
 -- Unwinding the stack finished if number result
+-- and empty dump. If non-empty dump execute dump.
+--
+-- [Unwind] a:s  <i',s'>:d h[a:NNum n] m
+-- =>    i' a:s'         d h           m
 --
 --    [Unwind]     a:s h[a:NAp a_1 a_2] m
 -- => [Unwind] a_1:a:s h                m
@@ -148,7 +165,10 @@ unwind state = newState $ hLookup heap a
   where mapn n f xs = map f (take n xs) ++ drop n xs
         (a:as) = getStack state
         heap   = getHeap state
-        newState (NNum n) = state
+        dump   = getDump state
+        newState (NNum n) = case dump of
+          (i',s'):d -> (putCode i').(putStack (a:s')).(putDump d) $ state
+          [] -> state
         newState (NAp a1 a2) = putCode [Unwind] (putStack (a1:a:as) state)
         newState (NGlobal n c)
           | length as < n = error "Unwinding with too few arguments"
@@ -172,6 +192,7 @@ dispatch (Update n) = update n
 dispatch (Pop n) = pop n
 dispatch (Alloc n) = alloc n
 dispatch Unwind = unwind
+dispatch Eval = evalG
 
 step :: GmState -> GmState
 step state = dispatch i (putCode is state)
