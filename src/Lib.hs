@@ -1,8 +1,6 @@
 {-# LANGUAGE BlockArguments #-}
 
-module Lib
-    ( mainFunc
-    ) where
+module Lib where
 
 import Data.List (mapAccumL)
 import Type
@@ -11,6 +9,9 @@ mainFunc :: IO ()
 mainFunc = putStrLn k
 
 -- Mk6 implements output so then write tests for these, for now it is awkward.
+evalFinalNode :: CoreProgram -> Node
+evalFinalNode expr = hLookup (getHeap state) (head $ getStack state)
+  where state = (last.limitList 10000.eval.compile) $ expr
 --prog = [("main", [],
 --  EAp
 --  (EAp (EVar "k") (ENum 9))

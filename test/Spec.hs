@@ -5,8 +5,21 @@ import Test.Hspec.Megaparsec
 
 import Text.Megaparsec
 
+import Lib
 import Type
 import Parser
+
+to_main :: CoreExpr -> CoreProgram
+to_main expr = [("main",[],expr)]
+
+vars = EVar "sk_9"
+num = ENum 19
+pack = EConstr 17 12
+app = EAp (EVar "id") (EVar "x")
+appId10 = EAp (EVar "i") (ENum 10)
+letExpr = ELet False [("x", ENum 9)] (EVar "x")
+letrec = ELet True [("x", EVar "k"), ("a",ENum 9)] $ EAp (EAp (EVar "x") (EVar "a")) (ENum 12)
+caseExpr = ECase (EVar "n") [(1,["x"],ENum 9),(2,["x","y"],ENum 12)]
 
 varPrsTest = parse prsVar "" "id_num9" `shouldParse` EVar "id_num9"
 numPrsTest = parse prsNum "" "912" `shouldParse` ENum 912
@@ -36,21 +49,15 @@ parsingTests = describe "parsing" $ do
     it "parse \"let <x = 5> 2\" as a let expression" letPrsTest
     it "parse \"letrec <telle = x y> 12\" as a recursive let expression" letrecPrsTest
     it "parse \"|x| <1> hello -> 2\" as a case expression" casePrsTest
+ppExprTester expr expected = (show.ppExpr $ expr) `shouldBe` expected
 
-varsPpTest = (show.ppExpr $ EVar "sk_9") `shouldBe` "sk_9"
-numPpTest = (show.ppExpr $ ENum 19) `shouldBe` "19"
-packPpTest = (show.ppExpr $ EConstr 17 12) `shouldBe` "Pack{17,12}"
-appPpTest = (show.ppExpr $ EAp (EVar "id") (EVar "x")) `shouldBe` "id x"
-letPpTest = (show.ppExpr $ ELet False [("x",ENum 9)] (EVar "x"))
-  `shouldBe` "let <x = 9> x"
-letrecPpTest = (show.ppExpr $
-  ELet True [("x",EVar "k"), ("a",ENum 9)] (EVar "x"))
-  `shouldBe` "letrec <x = k; a = 9> x"
-
-casePpTest = (show.ppExpr $
-  ECase (EVar "n") [(1,["x"],ENum 9),(2,["x","y"],ENum 12)])
-  `shouldBe` "case n of <1> x -> 9;\n<2> x y -> 12;"
-  
+varsPpTest = ppExprTester vars "sk_9"
+numPpTest = ppExprTester num "19"
+packPpTest = ppExprTester pack "Pack{17,12}"
+appPpTest = ppExprTester app "id x"
+letPpTest = ppExprTester letExpr "let <x = 9> x"
+letrecPpTest = ppExprTester letrec "letrec <x = k; a = 9> x a 12"
+casePpTest = ppExprTester caseExpr "case n of <1> x -> 9;\n<2> x y -> 12;"
 
 prettyPrintingTests = describe "pretty printing" $ do
     it "pretty print EVar \"sk_9\" " varsPpTest
@@ -58,14 +65,27 @@ prettyPrintingTests = describe "pretty printing" $ do
     it "pretty print EConstr 17 12" packPpTest
     it "pretty print EAp (EVar \"id\") (EVar \"x\")" appPpTest
     it "pretty print : let <x = 9> x" letPpTest
-    it "pretty print : let <x = k; a = 9> x" letrecPpTest
+    it "pretty print : let <x = k; a = 9> x a 12" letrecPpTest
     it "pretty print : multi-tag case" casePpTest
 
+numEvalTest = (show.evalFinalNode.to_main $ num) `shouldBe` "NNum 19"
+appId10EvalTest = (show.evalFinalNode.to_main $ appId10) `shouldBe` "NNum 10"
+letExprEvalTest = (show.evalFinalNode.to_main $ letExpr) `shouldBe` "NNum 9"
+letrecEvalTest = (show.evalFinalNode.to_main $ letrec) `shouldBe` "NNum 9" 
+
+evalTests = describe "evaluation" $ do
+  it "eval, main = 19" numEvalTest
+  it "eval, main = i 10" appId10EvalTest
+  it "eval, main = let <x = 9> x" letExprEvalTest
+  it "eval, main = letrec <x = k; a = 9> x a 12" letrecEvalTest
 -- TODO Tests for evaluation
 -- Laziness termination, let/letrec, enum, id/k application
 -- Termination can be found by seeing if the length of evaluation states is below
 -- some very large number; in a way this is also a crude performance benchmark.
+
+
 main :: IO ()
 main = hspec.parallel $ do
   parsingTests
   prettyPrintingTests
+  evalTests

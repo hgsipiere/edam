@@ -119,6 +119,10 @@ cata :: (a -> b -> b) -> b -> [a] -> b
 cata c k (x : xs) = c x (cata c k xs)
 cata c k [] = k
 
+limitList 0 (x:xs) = [] -- recursion scheme?
+limitList n (x:xs) = x:limitList (n-1) xs
+limitList k [] = []
+
 -- (# of objects in the heap, unused addresses, [(address, object)])
 type Heap a = (Int, [Int], [(Int, a)])
 type Addr = Int
@@ -231,9 +235,6 @@ ppSC s (name, addr) = pretty "Code for " <> pretty name <> hardline <> ppInstruc
 ppState :: GmState -> Doc ann
 ppState s = ppStack s <> hardline <> ppInstructions (getCode s) <> hardline
 
-limitList 0 (x:xs) = [] -- recursion scheme?
-limitList n (x:xs) = x:limitList (n-1) xs
-limitList k [] = []
 
 ppResults :: [GmState] -> Doc ann
 ppResults states@(state:ss) =
