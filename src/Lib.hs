@@ -8,7 +8,8 @@ import Type
 mainFunc :: IO ()
 mainFunc = putStrLn k
 
-prog = [("main", [], EAp (EVar "i") (ENum 12))]
+problem =  ELet recursive [("x", ENum 2), ("a", ENum 9)] $ EVar "a"
+prog = [("main", [], problem)] --EAp (EAp (EVar "x") (ENum 12)) (ENum 17))]
 k = show.ppResults.eval.compile $ prog
 
 preludeDefs = [
@@ -17,6 +18,7 @@ preludeDefs = [
   EAp (EVar "f")
   (EAp (EVar "fix") (EVar "f"))),
   ("k", ["x","y"], EVar "x"),
+  ("k2", ["x","y"], EVar "y"),
   ("twice", ["f","x"], EAp (EVar "f") (EAp (EVar "f") (EVar "x")))
   ]
 
@@ -226,7 +228,7 @@ argOffset n env = (\(arg,rel) -> (arg,rel+n)) <$> env
 compileC :: GmCompiler
 compileC (EVar v) env
   | elem v (aDomain env) = [Push n]
-  | otherwise            = [Pushglobal v]
+  | otherwise            = [Pushglobal v] -- this is being called at the wrong time for letrec
     where n = aLookup env v (error "Can't happen")
     -- the environment maps argument names to how far up
     -- the stack they are, argument pointers are directly on the stack
@@ -242,7 +244,7 @@ compileC (ELet recursive defs e) args -- 3.5.4
 -- calculates rho'
 compileArgs :: [CoreDefn] -> GmEnvironment -> GmEnvironment
 compileArgs defs env
-  = zip (map fst defs) [(n-1) .. 0] ++ argOffset n env
+  = zip (map fst defs) [(n-1),(n-2) .. 0] ++ argOffset n env
     where n = length defs
 
 compileLet :: GmCompiler -> [CoreDefn] -> GmCompiler
@@ -272,10 +274,12 @@ compileLet' ((name,expr):defs) env
 -- then after expression compilation we point the evaluated value to one of the dummy indirections
 -- after all this you just clean up the stack by getting rid of all the x_j originals
 -- since they are in indirections
+
 compileLetrec :: GmCompiler -> [CoreDefn] -> GmCompiler -- ex 3.16
 compileLetrec comp defs expr env = [Alloc n] ++ compileLetrec' 1 defs env' ++ comp expr env' ++ [Slide n]
   where n = length defs
         env' = compileArgs defs env
+
 compileLetrec' :: Int -> [CoreDefn] -> GmEnvironment -> GmCode
 compileLetrec' _ [] _ = []
 compileLetrec' k ((name,expr):defs) env = compileC expr env ++ [Update (n-k)] ++ compileLetrec' (k+1) defs env

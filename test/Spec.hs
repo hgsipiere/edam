@@ -22,7 +22,7 @@ pack = EConstr 17 12
 app = EAp (EVar "id") (EVar "x")
 appId10 = EAp (EVar "i") (ENum 10)
 letExpr = ELet False [("x", ENum 9)] (EVar "x")
-letrec = ELet True [("x", EVar "k"), ("a",ENum 9)] $ EAp (EAp (EVar "x") (EVar "a")) (ENum 12)
+letrec = ELet recursive [("x", EVar "k"), ("a",ENum 9)] $ EAp (EAp (EVar "x") (EVar "a")) (ENum 12)
 caseExpr = ECase (EVar "n") [(1,["x"],ENum 9),(2,["x","y"],ENum 12)]
 
 fixConst3Prog = [
