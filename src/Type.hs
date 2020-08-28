@@ -61,7 +61,7 @@ data Instruction
  | Slide Int
  | Alloc Int
  | Eval
- | Add | Sub | Mul | Div | Neg
+ | Add | Sub | Mul | Div | Mod | Neg
  | Eq | Neq | Lt | Le | Gt | Ge
  | Cond GmCode GmCode
  deriving (Show, Eq)
@@ -249,6 +249,7 @@ ppInstruction Add = pretty "Add"
 ppInstruction Sub = pretty "Sub"
 ppInstruction Mul = pretty "Mul"
 ppInstruction Div = pretty "Div"
+ppInstruction Mod = pretty "Mod"
 ppInstruction Neg = pretty "Neg"
 ppInstruction Eq = pretty "Eq"
 ppInstruction Neq = pretty "Neq"

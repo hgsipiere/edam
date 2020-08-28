@@ -50,15 +50,37 @@ primitive2 :: (b -> GmState -> GmState) -> (Addr -> GmState -> a) -> (a -> a -> 
 primitive2 box unbox op state = box (op (unbox a0 state) (unbox a1 state)) (putStack as state)
   where (a0:a1:as) = getStack state
 
-arithmetic1 :: (Int -> Int) -> (GmState -> GmState)
-arithmetic1 = primitive1 boxInteger unboxInteger
+arith1 :: (Int -> Int) -> (GmState -> GmState)
+arith1 = primitive1 boxInteger unboxInteger
 
-arithmetic2 :: (Int -> Int -> Int) -> (GmState -> GmState)
-arithmetic2 = primitive2 boxInteger unboxInteger
+neg = arith1 (0-)
 
-sub :: (GmState -> GmState)
-sub = arithmetic2 (-)
-add = arithmetic2 (+)
+arith2 :: (Int -> Int -> Int) -> (GmState -> GmState)
+arith2 = primitive2 boxInteger unboxInteger
+
+
+add, sub, mul, divG, modG :: (GmState -> GmState)
+sub = arith2 (-)
+add = arith2 (+)
+mul = arith2 (*)
+divG = arith2 div
+modG = arith2 mod
+
+boxBoolean :: Bool -> GmState -> GmState
+boxBoolean b state = putStack (a: getStack state) (putHeap h' state)
+  where (h',a) = hAlloc (getHeap state) (NNum b')
+        b' | b         = 1
+           | otherwise = 0
+
+comparison = primitive2 boxBoolean unboxInteger
+
+eq = comparison (==)
+neq = comparison (/=)
+lt = comparison (<)
+le = comparison (<=)
+gt = comparison (>)
+ge = comparison (>=)
+
 -- Pushglobal f:i   s h m[f:a]
 -- =>           i a:s h m
 pushglobal f state = putStack (a: getStack state) state
@@ -225,6 +247,16 @@ dispatch Unwind = unwind
 dispatch Eval = evalG
 dispatch Sub = sub
 dispatch Add = add
+dispatch Mul = mul
+dispatch Div = divG
+dispatch Mod = modG
+dispatch Neg = neg
+dispatch Eq = eq
+dispatch Neq = neq
+dispatch Lt = lt
+dispatch Le = le
+dispatch Gt = gt
+dispatch Ge = ge
 
 step :: GmState -> GmState
 step state = dispatch i (putCode is state)
@@ -348,7 +380,17 @@ buildInitialHeap program = mapAccumL allocateSc hInitial compiledWPrelude
   where compiled = map compileSc program
         compiledPrimitives = [
           ("plus", 2, [Push 1, Eval, Push 1, Eval, Add, Update 2, Pop 2, Unwind]),
-          ("sub", 2, [Push 1, Eval, Push 1, Eval, Sub, Update 2, Pop 2, Unwind])
+          ("sub", 2, [Push 1, Eval, Push 1, Eval, Sub, Update 2, Pop 2, Unwind]),
+          ("mul", 2, [Push 1, Eval, Push 1, Eval, Mul, Update 2, Pop 2, Unwind]),
+          ("div", 2, [Push 1, Eval, Push 1, Eval, Div, Update 2, Pop 2, Unwind]),
+          ("mod", 2, [Push 1, Eval, Push 1, Eval, Mod, Update 2, Pop 2, Unwind]),
+          ("negate", 1, [Push 0, Eval, Neg, Update 1, Pop 1, Unwind]),
+          ("eq", 2, [Push 1, Eval, Push 1, Eval, Eq, Update 2, Pop 2, Unwind]),
+          ("neq", 2, [Push 1, Eval, Push 1, Eval, Neq, Update 2, Pop 2, Unwind]),
+          ("lt", 2, [Push 1, Eval, Push 1, Eval, Lt, Update 2, Pop 2, Unwind]),
+          ("le", 2, [Push 1, Eval, Push 1, Eval, Le, Update 2, Pop 2, Unwind]),
+          ("gt", 2, [Push 1, Eval, Push 1, Eval, Gt, Update 2, Pop 2, Unwind]),
+          ("ge", 2, [Push 1, Eval, Push 1, Eval, Ge, Update 2, Pop 2, Unwind])
           ]
         compiledWPrelude = (compileSc <$> preludeDefs) ++ compiled ++ compiledPrimitives
 
