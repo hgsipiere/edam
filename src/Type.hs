@@ -48,6 +48,9 @@ type CoreScDefn = ScDefn Name
 
 type Program a = [ScDefn a]
 type CoreProgram = Program Name
+
+to_main :: CoreExpr -> CoreProgram
+to_main expr = [("main", [], expr)]
 -- G Machine types
 
 data Instr
@@ -182,11 +185,15 @@ aDomain = map fst
 aRange = map snd
 aEmpty = []
 
--- this could be a recursion scheme, and work with non empty lists
+-- this should be a recursion scheme on non-empty and lists and not reverse
 mkApChain :: [CoreExpr] -> CoreExpr
-mkApChain (expr:rest@(_:_)) = EAp expr $ mkApChain rest
-mkApChain [x] = x
-mkApChain [] = error "empty app chain"
+mkApChain = mkApChain'.reverse
+-- k 2 7 ~ [EVar "k", ENum 2, Enum 7]
+-- -> EAp (EAp (EVar "k") (ENum 2)) (ENum 7)
+mkApChain' :: [CoreExpr] -> CoreExpr
+mkApChain' [] = error "No expressions to chain"
+mkApChain' [x] = x
+mkApChain' (x:xs@(_:_)) = EAp (mkApChain' xs) x
 
 -- Format core expressions as document
 ppDefn (name, value) = pretty name <+> pretty "=" <+> ppExpr value
@@ -285,4 +292,4 @@ ppResults states@(state:ss) =
  -- we limit the length because often breaking changes cause infinite loops
  vsep (map ppState limitedStates) <> hardline <> hardline <>
  ppStats (last limitedStates)
-   where limitedStates = limitList 10000 states
+   where limitedStates = limitList 1000000 states

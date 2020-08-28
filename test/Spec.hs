@@ -9,15 +9,6 @@ import Lib
 import Type
 import Parser
 
-evalFinalNode :: CoreProgram -> Node
-evalFinalNode expr = hLookup (getHeap state) (head $ getStack state)
-  where state = (last.limitList 10000.eval.compile) $ expr
-
-prSh = show.evalFinalNode.to_main
-
-to_main :: CoreExpr -> CoreProgram
-to_main expr = [("main",[],expr)]
-
 vars = EVar "sk_9"
 num = ENum 19
 pack = EConstr 17 12
@@ -61,7 +52,8 @@ letrecPrsTest = parse prsLetrec "" "letrec <telle = x y> 12" `shouldParse`
  (ELet recursive [("telle",EAp (EVar "x") (EVar "y"))] $ ENum 12)
 casePrsTest = parse prsCase "" "|x| <1> hello -> 2" `shouldParse`
  (ECase (EVar "x") [(1, ["hello"], ENum 2)])
-apPrsTest = parse prsApp "" "id 2" `shouldParse` EAp (EVar "id") (ENum 2)
+apPrsTest = parse prsAp "" "id 2" `shouldParse` EAp (EVar "id") (ENum 2)
+ap2PrsTest = parse prsAp "" "k 2 7" `shouldParse` EAp (EAp (EVar "k") (ENum 2)) (ENum 7)
 apExprPrsTest = parse prsExpr "" "k i" `shouldParse` EAp (EVar "k") (EVar "i")
 
 parsingTests = describe "parsing" $ do 
@@ -73,6 +65,7 @@ parsingTests = describe "parsing" $ do
     it "parse \"Pack{ 15, 0}\" as an atomic expression" packAExprPrsTest
   describe "non-atomics" $ do
     it "parse \"id 2\" as an application" apPrsTest
+    it "parse \"k 2 7\" as an application" ap2PrsTest
     it "parse \"k i\" as an expression" apExprPrsTest
     it "parse \"let <x = 5> 2\" as a let expression" letPrsTest
     it "parse \"letrec <telle = x y> 12\" as a recursive let expression" letrecPrsTest

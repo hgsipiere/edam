@@ -3,10 +3,21 @@
 module Lib where
 
 import Data.List (mapAccumL)
+import Text.Megaparsec
+import System.Environment
+
 import Type
+import Parser
 
 mainFunc :: IO ()
-mainFunc = putStrLn k
+mainFunc = do
+  -- putStrLn k
+  args <- getArgs
+  sourceCode <- readFile (args !! 0)
+  putStrLn.present.(fmap $ prSh') $ runParser prsProg "" sourceCode
+
+present (Left x) = errorBundlePretty x
+present (Right x) = x
 
 problem =  ELet nonRecursive [("x", ENum 5), ("a", ENum 9)] $ EAp (EAp (EVar "plus") (EVar "a")) (EVar "x")
 prog = [("main", [], problem)] --EAp (EAp (EVar "x") (ENum 12)) (ENum 17))]
@@ -287,6 +298,13 @@ eval state = state : restStates
   where restStates | gmFinal state = []
                    | otherwise     = eval nextState
         nextState = doAdmin (step state)
+
+evalFinalNode :: CoreProgram -> Node
+evalFinalNode expr = hLookup (getHeap state) (head $ getStack state)
+  where state = (last.limitList 1000000.eval.compile) $ expr
+
+prSh' = show.evalFinalNode
+prSh = prSh'.to_main
 
 type GmCompiledSc = (Name, Int, GmCode)
 type GmEnvironment = Assoc Name Int

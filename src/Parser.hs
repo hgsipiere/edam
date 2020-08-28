@@ -12,7 +12,7 @@ import qualified Text.Megaparsec.Char.Lexer as L
 
 import Type
 
-type Parser = Parsec Void Text
+type Parser = Parsec Void String
 
 -- happy comments
 spaceConsumer :: Parser ()
@@ -101,10 +101,20 @@ prsLetrec = do
 
 -- this is like this rather than expr aexpr
 -- because then the grammar becomes left recursive
-prsApp = mkApChain <$> some prsAExpr
+prsAp = mkApChain <$> some prsAExpr
 
 prsParensExpr = parens prsExpr
 
 prsAExpr = prsVar <|> prsNum <|> prsPack <|> prsParensExpr
 -- do not parse lambdas until I get to lambda lifting for convenience
-prsExpr = prsLet <|> prsLetrec <|> prsCase <|> prsApp <|> prsAExpr
+prsExpr = prsLet <|> prsLetrec <|> prsCase <|> prsAp <|> prsAExpr
+
+prsSc = do
+  name <- prsIdent
+  args <- many prsIdent
+  symbol "="
+  definition <- prsExpr
+  symbol ";"
+  return (name, args, definition)
+
+prsProg = many prsSc
