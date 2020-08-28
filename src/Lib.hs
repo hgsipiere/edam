@@ -8,7 +8,7 @@ import Type
 mainFunc :: IO ()
 mainFunc = putStrLn k
 
-problem =  ELet recursive [("x", ENum 2), ("a", ENum 9)] $ EVar "a"
+problem =  ELet nonRecursive [("x", ENum 5), ("a", ENum 9)] $ EAp (EAp (EVar "plus") (EVar "a")) (EVar "x")
 prog = [("main", [], problem)] --EAp (EAp (EVar "x") (ENum 12)) (ENum 17))]
 k = show.ppResults.eval.compile $ prog
 
@@ -29,6 +29,36 @@ doAdmin s = putStats (statIncSteps $ getStats s) s
 -- [instructions] [stack] [heap] [globals]
 -- => [instructions'] [stack'] [heap'] [globals']
 
+-- Dyadic arithmetic
+-- * : i a_0:a_1:s d h[a_0:NNum n_0, a_1:NNum n_1] m
+-- =>  i       a:s d h[a:NNum (n_0 * n_1)]         m
+
+boxInteger :: Int -> GmState -> GmState
+boxInteger n state = putStack (a : getStack state) (putHeap h' state)
+  where (h', a) = hAlloc (getHeap state) (NNum n)
+
+unboxInteger :: Addr -> GmState -> Int
+unboxInteger a state = ub . hLookup (getHeap state) $ a
+  where ub (NNum i) = i
+        ub n        = error "Unboxing a non-integer"
+
+primitive1 :: (b -> GmState -> GmState) -> (Addr -> GmState -> a) -> (a -> b) -> (GmState -> GmState)
+primitive1 box unbox op state = box (op (unbox a state)) (putStack as state)
+  where (a:as) = getStack state
+
+primitive2 :: (b -> GmState -> GmState) -> (Addr -> GmState -> a) -> (a -> a -> b) -> (GmState -> GmState)
+primitive2 box unbox op state = box (op (unbox a0 state) (unbox a1 state)) (putStack as state)
+  where (a0:a1:as) = getStack state
+
+arithmetic1 :: (Int -> Int) -> (GmState -> GmState)
+arithmetic1 = primitive1 boxInteger unboxInteger
+
+arithmetic2 :: (Int -> Int -> Int) -> (GmState -> GmState)
+arithmetic2 = primitive2 boxInteger unboxInteger
+
+sub :: (GmState -> GmState)
+sub = arithmetic2 (-)
+add = arithmetic2 (+)
 -- Pushglobal f:i   s h m[f:a]
 -- =>           i a:s h m
 pushglobal f state = putStack (a: getStack state) state
@@ -193,6 +223,8 @@ dispatch (Pop n) = pop n
 dispatch (Alloc n) = alloc n
 dispatch Unwind = unwind
 dispatch Eval = evalG
+dispatch Sub = sub
+dispatch Add = add
 
 step :: GmState -> GmState
 step state = dispatch i (putCode is state)
@@ -314,7 +346,10 @@ compile program = GmState initialCode [] [] heap globals statInitial
 buildInitialHeap :: CoreProgram -> (GmHeap, GmGlobals)
 buildInitialHeap program = mapAccumL allocateSc hInitial compiledWPrelude
   where compiled = map compileSc program
-        compiledPrimitives = [] -- Nothing at the moment
+        compiledPrimitives = [
+          ("plus", 2, [Push 1, Eval, Push 1, Eval, Add, Update 2, Pop 2, Unwind]),
+          ("sub", 2, [Push 1, Eval, Push 1, Eval, Sub, Update 2, Pop 2, Unwind])
+          ]
         compiledWPrelude = (compileSc <$> preludeDefs) ++ compiled ++ compiledPrimitives
 
 allocateSc :: GmHeap -> GmCompiledSc -> (GmHeap, (Name, Addr))
