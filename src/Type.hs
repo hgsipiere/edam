@@ -50,7 +50,7 @@ type Program a = [ScDefn a]
 type CoreProgram = Program Name
 -- G Machine types
 
-data Instruction
+data Instr
  = Unwind
  | Pushglobal Name
  | Pushint Int
@@ -75,7 +75,7 @@ data Node
 getArg :: Node -> Addr
 getArg (NAp a1 a2) = a2
 
-type GmCode = [Instruction]
+type GmCode = [Instr]
 type GmStack = [Addr]
 type GmDumpItem = (GmCode, GmStack)
 type GmDump = [GmDumpItem]
@@ -219,7 +219,7 @@ ppNode _ _ (NAp a1 a2) = pretty "Ap" <+> pretty a1 <+> pretty a2
 ppNode _ _ (NInd a) = pretty "NInd" <+> pretty a
 
 ppSC :: GmState -> (Name, Addr) -> Doc ann
-ppSC s (name, addr) = pretty "Code for " <> pretty name <> hardline <> ppInstructions code <> hardline
+ppSC s (name, addr) = pretty "Code for " <> pretty name <> hardline <> ppInstrs code <> hardline
   where (NGlobal name code) = hLookup (getHeap s) addr
 
 ppStackItem :: GmState -> Addr -> Doc ann
@@ -234,47 +234,48 @@ ppStack state = pretty " Stack:[" <> nest 2 (vsep (map (ppStackItem state) rever
   -- reversed so you pop off from the bottom, stable aesthetics
 
 
-ppInstruction :: Instruction -> Doc ann
-ppInstruction Unwind = pretty "Unwind"
-ppInstruction (Pushglobal f) = pretty "Pushglobal" <+> pretty f
-ppInstruction (Push n) = pretty "Push" <+> pretty n
-ppInstruction (Pushint n) = pretty "Pushint" <+> pretty n
-ppInstruction MkAp = pretty "MkAp"
-ppInstruction (Update n) = pretty "Update" <+> pretty n
-ppInstruction (Pop n) = pretty "Pop" <+> pretty n
-ppInstruction (Slide n) = pretty "Slide" <+> pretty n
-ppInstruction (Alloc n) = pretty "Alloc" <+> pretty n
-ppInstruction Eval = pretty "Eval"
-ppInstruction Add = pretty "Add"
-ppInstruction Sub = pretty "Sub"
-ppInstruction Mul = pretty "Mul"
-ppInstruction Div = pretty "Div"
-ppInstruction Mod = pretty "Mod"
-ppInstruction Neg = pretty "Neg"
-ppInstruction Eq = pretty "Eq"
-ppInstruction Neq = pretty "Neq"
-ppInstruction Lt = pretty "Lt"
-ppInstruction Le = pretty "Le"
-ppInstruction Gt = pretty "Gt"
-ppInstruction Ge = pretty "Ge"
+ppInstr :: Instr -> Doc ann
+ppInstr Unwind = pretty "Unwind"
+ppInstr (Pushglobal f) = pretty "Pushglobal" <+> pretty f
+ppInstr (Push n) = pretty "Push" <+> pretty n
+ppInstr (Pushint n) = pretty "Pushint" <+> pretty n
+ppInstr MkAp = pretty "MkAp"
+ppInstr (Update n) = pretty "Update" <+> pretty n
+ppInstr (Pop n) = pretty "Pop" <+> pretty n
+ppInstr (Slide n) = pretty "Slide" <+> pretty n
+ppInstr (Alloc n) = pretty "Alloc" <+> pretty n
+ppInstr Eval = pretty "Eval"
+ppInstr Add = pretty "Add"
+ppInstr Sub = pretty "Sub"
+ppInstr Mul = pretty "Mul"
+ppInstr Div = pretty "Div"
+ppInstr Mod = pretty "Mod"
+ppInstr Neg = pretty "Neg"
+ppInstr Eq = pretty "Eq"
+ppInstr Neq = pretty "Neq"
+ppInstr Lt = pretty "Lt"
+ppInstr Le = pretty "Le"
+ppInstr Gt = pretty "Gt"
+ppInstr Ge = pretty "Ge"
+ppInstr (Cond a b) = pretty "Cond" <+> ppShortInstrs 7 a <+> ppShortInstrs 7 b
 
-ppShortInstructions :: Int -> GmCode -> Doc ann
-ppShortInstructions n code = encloseSep lbrace rbrace (pretty "; ") dotcodes
-  where codes = map ppInstruction (take n code)
+ppShortInstrs :: Int -> GmCode -> Doc ann
+ppShortInstrs n code = encloseSep lbrace rbrace (pretty "; ") dotcodes
+  where codes = map ppInstr (take n code)
         dotcodes | length code > n = codes ++  [pretty "..."]
                  | otherwise       = codes
 
-ppInstructions :: GmCode -> Doc ann
-ppInstructions is = pretty "  Code:{" <> (nest 2 $ vsep (map ppInstruction is)) <> pretty "}" <> hardline
+ppInstrs :: GmCode -> Doc ann
+ppInstrs is = pretty "  Code:{" <> (nest 2 $ vsep (map ppInstr is)) <> pretty "}" <> hardline
 
 ppDumpItem :: GmDumpItem -> Doc ann
-ppDumpItem (code, stack) = langle <> ppShortInstructions 3 code <> pretty ", " <> ppShortStack stack <> rangle
+ppDumpItem (code, stack) = langle <> ppShortInstrs 3 code <> pretty ", " <> ppShortStack stack <> rangle
 
 ppDump :: GmState -> Doc ann
 ppDump s = nest 4 (pretty "Dump:[" <> vsep (map ppDumpItem (reverse.getDump $ s)) <> rangle)
 
 ppState :: GmState -> Doc ann
-ppState s = ppStack s <> hardline <> ppDump s <> hardline <> ppInstructions (getCode s) <> hardline
+ppState s = ppStack s <> hardline <> ppDump s <> hardline <> ppInstrs (getCode s) <> hardline
 
 ppResults :: [GmState] -> Doc ann
 ppResults states@(state:ss) =

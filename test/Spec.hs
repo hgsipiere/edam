@@ -27,13 +27,19 @@ letExpr = ELet False [("x", ENum 9)] (EVar "x")
 letrec = ELet recursive [("x", EVar "k"), ("a",ENum 9)] $ EAp (EAp (EVar "x") (EVar "a")) (ENum 12)
 caseExpr = ECase (EVar "n") [(1,["x"],ENum 9),(2,["x","y"],ENum 12)]
 
+ifTrue7_9 = EAp (EAp (EAp (EVar "if") (ENum 1)) (ENum 7)) (ENum 9)
+ifFalse7_9 = EAp (EAp (EAp (EVar "if") (ENum 0)) (ENum 7)) (ENum 9)
+ifTrue7_9Test = prSh ifTrue7_9 `shouldBe` "NNum 7"
+ifFalse7_9Test = prSh ifFalse7_9 `shouldBe` "NNum 9"
+
+
 negExpr = EAp (EVar "neg") (ENum 7)
 letx5a9ap op = ELet nonRecursive [("x", ENum 5), ("a", ENum 9)] $ EAp (EAp (EVar op) (EVar "a")) (EVar "x")
-addLetExpr = letx5a9ap "plus"
-subLetExpr = letx5a9ap "sub"
-mulLetExpr = letx5a9ap "mul"
-divLetExpr = letx5a9ap "div"
-modLetExpr = letx5a9ap "mod"
+addLet = letx5a9ap "plus"
+subLet = letx5a9ap "sub"
+mulLet = letx5a9ap "mul"
+divLet = letx5a9ap "div"
+modLet = letx5a9ap "mod"
 
 dyTest :: String -> Int -> Int -> String -> Expectation
 dyTest op a b expected = (prSh (EAp (EAp (EVar op) (ENum a)) (ENum b))) `shouldBe` expected
@@ -94,11 +100,11 @@ numEvalTest = (prSh $ num) `shouldBe` "NNum 19"
 appId10EvalTest = (prSh $ appId10) `shouldBe` "NNum 10"
 letExprEvalTest = (prSh $ letExpr) `shouldBe` "NNum 9"
 letrecEvalTest = (prSh $ letrec) `shouldBe` "NNum 9"
-addLetExprTest = (prSh $ addLetExpr) `shouldBe` "NNum 14"
-subLetExprTest = (prSh $ subLetExpr) `shouldBe` "NNum 4"
-mulLetExprTest = (prSh $ mulLetExpr) `shouldBe` "NNum 45"
-divLetExprTest = (prSh $ divLetExpr) `shouldBe` "NNum 1"
-modLetExprTest = (prSh $ modLetExpr) `shouldBe` "NNum 4"
+addLetTest = (prSh $ addLet) `shouldBe` "NNum 14"
+subLetTest = (prSh $ subLet) `shouldBe` "NNum 4"
+mulLetTest = (prSh $ mulLet) `shouldBe` "NNum 45"
+divLetTest = (prSh $ divLet) `shouldBe` "NNum 1"
+modLetTest = (prSh $ modLet) `shouldBe` "NNum 4"
 
 fixConst3ProgTest = (show.evalFinalNode $ fixConst3Prog) `shouldBe` "NNum 3"
 
@@ -108,15 +114,13 @@ evalTests = describe "evaluation" $ do
   it "eval, main = let <x = 9> x" letExprEvalTest
   it "eval, main = letrec <x = k; a = 9> x a 12" letrecEvalTest
   it "eval, fixConst3Prog" fixConst3ProgTest
-  it "eval, 9 + 5 = 14" addLetExprTest
-  it "eval, 9 - 5 = 4" subLetExprTest
-  it "eval, 9*5 = 40" mulLetExprTest
-  it "eval, div 9 5 = 1" divLetExprTest
-  it "eval, mod 9 5 = 4" modLetExprTest
--- TODO Tests for evaluation
--- Laziness termination, let/letrec, enum, id/k application
--- Termination can be found by seeing if the length of evaluation states is below
--- some very large number; in a way this is also a crude performance benchmark.
+  it "eval, 9 + 5 = 14" addLetTest
+  it "eval, 9 - 5 = 4" subLetTest
+  it "eval, 9*5 = 40" mulLetTest
+  it "eval, div 9 5 = 1" divLetTest
+  it "eval, mod 9 5 = 4" modLetTest
+  it "eval, if True 7 9" ifTrue7_9Test
+  it "eval, if False 7 9" ifFalse7_9Test
 
 dyadicTests = describe "dyadic" $ do
   it "1 == 1 is True"  $ dyTest "eq" 1 1 "NNum 1"

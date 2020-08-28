@@ -183,6 +183,20 @@ evalG state = putCode [Unwind].putStack [a].appendDump (i,s) $ state
   where (a:s) = getStack state
         i = getCode state
 
+-- Cond i1 i2:i a:s d h[a:NNum 1] m
+-- =>   i1 ++ i   s d h           m
+--
+-- Cond i1 i2:i a:s d h[a:NNum 0] m
+-- =>   i2 ++ i   s d h           m
+-- 0 is False, 1 is True for context
+cond :: GmCode -> GmCode -> GmState -> GmState
+cond i1 i2 state | node == NNum 1 = putCode (i1 ++ i) state'
+                 | node == NNum 0 = putCode (i2 ++ i) state'
+                 | otherwise      = error "Non boolean conditional"
+  where (a:s) = getStack state
+        i = getCode state
+        node = hLookup (getHeap state) a
+        state' = putStack s state
 
 -- [Unwind] a:s h[a:NNum n] m
 -- =>    [] a:s h           m
@@ -234,7 +248,7 @@ rearrange :: Int -> GmHeap -> GmStack -> GmStack
 rearrange n heap as = take n as' ++ drop n as
   where as' = map (getArg. hLookup heap) $ tail as
 
-dispatch :: Instruction -> GmState -> GmState
+dispatch :: Instr -> GmState -> GmState
 dispatch (Pushglobal f) = pushglobal f
 dispatch (Pushint n) = pushint n
 dispatch MkAp = mkap
@@ -245,6 +259,9 @@ dispatch (Pop n) = pop n
 dispatch (Alloc n) = alloc n
 dispatch Unwind = unwind
 dispatch Eval = evalG
+dispatch (Cond a b) = cond a b
+
+-- arithmetic operators
 dispatch Sub = sub
 dispatch Add = add
 dispatch Mul = mul
@@ -372,7 +389,7 @@ compileLetrec' k ((name,expr):defs) env = compileC expr env ++ [Update (n-k)] ++
 
 compile program = GmState initialCode [] [] heap globals statInitial
   where (heap, globals) = buildInitialHeap program
-        initialCode = [Pushglobal "main", Unwind]
+        initialCode = [Pushglobal "main", Eval]
 
 -- put all the super combinators in the heap and provide an association map from names to addresses
 buildInitialHeap :: CoreProgram -> (GmHeap, GmGlobals)
@@ -390,7 +407,8 @@ buildInitialHeap program = mapAccumL allocateSc hInitial compiledWPrelude
           ("lt", 2, [Push 1, Eval, Push 1, Eval, Lt, Update 2, Pop 2, Unwind]),
           ("le", 2, [Push 1, Eval, Push 1, Eval, Le, Update 2, Pop 2, Unwind]),
           ("gt", 2, [Push 1, Eval, Push 1, Eval, Gt, Update 2, Pop 2, Unwind]),
-          ("ge", 2, [Push 1, Eval, Push 1, Eval, Ge, Update 2, Pop 2, Unwind])
+          ("ge", 2, [Push 1, Eval, Push 1, Eval, Ge, Update 2, Pop 2, Unwind]),
+          ("if", 3, [Push 0, Eval, Cond [Push 1] [Push 2], Update 3, Pop 3, Unwind])
           ]
         compiledWPrelude = (compileSc <$> preludeDefs) ++ compiled ++ compiledPrimitives
 
