@@ -27,6 +27,7 @@ dependencies:
 - hspec-megaparsec == 2.1.0
 - text == 1.2.4.0
 - mtl == 2.2.2
+- safe == 0.3.19
 
 library:
   source-dirs: src

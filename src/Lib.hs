@@ -3,18 +3,25 @@
 module Lib where
 
 import Data.List (mapAccumL)
+import Data.Maybe
 import Text.Megaparsec
+import Safe
 import System.Environment
+
 
 import Type
 import Parser
 
 mainFunc :: IO ()
 mainFunc = do
-  -- putStrLn k
   args <- getArgs
-  sourceCode <- readFile (args !! 0)
-  putStrLn.present.(fmap $ prSh') $ runParser prsProg "" sourceCode
+  let sourceFileOpt = headMay args
+  case sourceFileOpt of
+    Just sourceFile ->
+      (do
+      sourceCode <- readFile sourceFile
+      putStrLn.present.(fmap $ prSh') $ runParser prsProg "" sourceCode)
+    Nothing -> putStrLn "No source file provided"
 
 present :: (Stream s, ShowErrorComponent e) => Either (ParseErrorBundle s e) String -> String
 present (Left x) = errorBundlePretty x
