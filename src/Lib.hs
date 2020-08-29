@@ -3,7 +3,6 @@
 module Lib where
 
 import Data.List (mapAccumL)
-import Data.Maybe
 import Text.Megaparsec
 import Safe
 import System.Environment

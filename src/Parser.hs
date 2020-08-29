@@ -1,9 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wno-unused-do-bind #-}
 
 module Parser where
 
 import Control.Applicative hiding (some, many)
-import Data.Text (Text)
 import Data.Void
 
 import Text.Megaparsec
@@ -23,11 +23,14 @@ spaceConsumer = L.space space1
 lexeme :: Parser a -> Parser a
 lexeme = L.lexeme spaceConsumer
 
+symbol :: String -> Parser String
 symbol = L.symbol spaceConsumer
+integer :: Parser Int
 integer = lexeme L.decimal
+charLexeme :: Char -> Parser Char
 charLexeme = lexeme.char
 
-braces, parens, chevrons :: Parser a -> Parser a
+braces, parens, chevrons, moduli :: Parser a -> Parser a
 parens = between (charLexeme '(') (charLexeme ')')
 braces = between (charLexeme '{') (charLexeme '}')
 chevrons = between (charLexeme '<') (charLexeme '>')
@@ -87,12 +90,12 @@ prsDefns = do
   return $ defn:defns
 
 -- example: let/letrec <x = 5> x === 5
+prsLet, prsLetrec :: Parser CoreExpr
 prsLet = do
   symbol "let"
   defns <- chevrons prsDefns
   expr <- prsExpr
   return $ ELet nonRecursive defns expr
-
 prsLetrec = do
   symbol "letrec"
   defns <- chevrons prsDefns
@@ -101,14 +104,15 @@ prsLetrec = do
 
 -- this is like this rather than expr aexpr
 -- because then the grammar becomes left recursive
+prsAp, prsParensExpr, prsAExpr, prsExpr :: Parser CoreExpr
+
 prsAp = mkApChain <$> some prsAExpr
-
 prsParensExpr = parens prsExpr
-
 prsAExpr = prsVar <|> prsNum <|> prsPack <|> prsParensExpr
 -- do not parse lambdas until I get to lambda lifting for convenience
 prsExpr = prsLet <|> prsLetrec <|> prsCase <|> prsAp <|> prsAExpr
 
+prsSc :: Parser CoreScDefn
 prsSc = do
   name <- prsIdent
   args <- many prsIdent
@@ -117,4 +121,5 @@ prsSc = do
   symbol ";"
   return (name, args, definition)
 
+prsProg :: Parser CoreProgram
 prsProg = many prsSc
