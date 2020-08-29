@@ -9,9 +9,6 @@ recursive, nonRecursive :: IsRec
 recursive    = True
 nonRecursive = False
 
-bindersOf = map fst
-rhssOf = map snd
-
 type Alter a = (Int, [a], Expr a)
 type CoreAlt = Alter Name
 corealt :: Int -> [Name] -> CoreExpr -> CoreAlt
@@ -76,7 +73,8 @@ data Node
  | NInd Addr deriving (Eq, Show)
 
 getArg :: Node -> Addr
-getArg (NAp a1 a2) = a2
+getArg (NAp _ a2) = a2
+getArg _ = error "Not an application node"
 
 type GmCode = [Instr]
 type GmStack = [Addr]
@@ -129,15 +127,16 @@ statGetSteps s = s
 -- Recursion schemes (I should use these)
 para :: (a -> [a] -> b -> b) -> b -> [a] -> b
 para c k (x : xs) = c x xs (para c k xs)
-para c k []       = k
+para _ k []       = k
 
 cata :: (a -> b -> b) -> b -> [a] -> b
 cata c k (x : xs) = c x (cata c k xs)
-cata c k [] = k
+cata _ k [] = k
 
-limitList 0 (x:xs) = [] -- recursion scheme?
+limitList :: Int -> [b] -> [b]
+limitList 0 (_:_) = [] -- recursion scheme?
 limitList n (x:xs) = x:limitList (n-1) xs
-limitList k [] = []
+limitList _ [] = []
 
 -- (# of objects in the heap, unused addresses, [(address, object)])
 type Heap a = (Int, [Int], [(Int, a)])
@@ -150,39 +149,48 @@ hInitial = (0, [1..], [])
 -- allocate n to heap, return new heap and address where n is allocated
 hAlloc :: Heap a -> a -> (Heap a, Addr)
 hAlloc (size, (next:free), cts) n = ((size+1, free, (next,n): cts), next)
+hAlloc (_, [], _) _ = error "Out of heap addresses"
 
 hUpdate :: Heap a -> Addr -> a -> Heap a
 hUpdate (size, free, cts) a n = (size, free, (a,n) : remove cts a)
 
 hLookup :: Heap a -> Addr -> a
-hLookup (size, free, cts) a = aLookup cts a (error $ "can't find node " ++ show a ++ " in heap")
+hLookup (_, _, cts) a = aLookup cts a (error $ "can't find node " ++ show a ++ " in heap")
 
 hFree :: Heap a -> Addr -> Heap a
 hFree (size, free, cts) a = (size-1, a:free, remove cts a)
 
 remove :: [(Int, a)] -> Int -> [(Int, a)]
+remove ((a',n):cts) a = case (a == a') of
+  True -> cts
+  False -> (a',n) : remove cts a
 remove [] a = error
   (" Attempt to update or free non existent address #" ++ show a)
-remove ((a',n):cts) a | a == a' = cts
-                      | a /= a' = (a',n) : remove cts a
 
 type Assoc a b = [(a,b)] -- association list, associates keys to values
 -- def is practically only used to call error, not at all safe
-aLookup [] k' def = def
-aLookup ((k,v):bs) k' def | k == k' = v
-                          | k /= k' = aLookup bs k' def
+aLookup :: (Eq a) => Assoc a b -> a -> b -> b
+aLookup [] _ def = def
+aLookup ((k,v):bs) k' def = case (k == k') of
+  True -> v
+  False -> aLookup bs k' def
 
-
+aReplace :: Eq a => Assoc a b -> (a,b) -> Assoc a b -> Assoc a b
 aReplace [] _ def = def -- cata? but error
-aReplace ((k,v):bs) (k',v') def | k == k' = (k',v'): bs
-                                | k /= k' = (k,v)  : aReplace bs (k',v') def
+aReplace ((k,v):bs) (k',v') def = case (k == k') of
+  True -> (k',v'): bs
+  False -> (k,v)  : aReplace bs (k',v') def
 
-aLookupSafe [] k' = Nothing
+aLookupSafe :: Eq a => Assoc a b -> a -> Maybe b
+aLookupSafe [] _ = Nothing
 aLookupSafe ((k,v):bs) k' | k == k'   = Just v
                           | otherwise = aLookupSafe bs k'
 
+aDomain :: Assoc a b -> [a]
 aDomain = map fst
+aRange :: Assoc a b -> [b]
 aRange = map snd
+aEmpty :: Assoc a b
 aEmpty = []
 
 -- this should be a recursion scheme on non-empty and lists and not reverse
@@ -196,6 +204,7 @@ mkApChain' [x] = x
 mkApChain' (x:xs@(_:_)) = EAp (mkApChain' xs) x
 
 -- Format core expressions as document
+ppDefn :: CoreDefn -> Doc ann
 ppDefn (name, value) = pretty name <+> pretty "=" <+> ppExpr value
 
 ppExpr :: CoreExpr -> Doc ann
@@ -210,6 +219,9 @@ ppExpr (ELet True definitions result) = pretty "letrec" <+>
   encloseSep langle rangle (semi <> space) (map ppDefn definitions) <+> ppExpr result
 ppExpr (ECase match alts) = pretty "case" <+> ppExpr match <+> pretty "of "
   <> vsep (map (\x -> ppAlt x <> semi) alts)
+ppExpr (ELam names expr) = encloseSep backslash dot space (map pretty names) <> ppExpr expr
+
+ppAlt :: CoreAlt -> Doc ann
 ppAlt (tag,args,expr) = (pretty "<" <> pretty tag <> pretty ">") <+>
   encloseSep mempty mempty space (map pretty args) <+> pretty "->" <+>
   ppExpr expr
@@ -219,7 +231,7 @@ ppStats s = pretty "Steps taken (if terminating) = " <> (pretty.statGetSteps.get
 
 ppNode :: GmState -> Addr -> Node -> Doc ann
 ppNode _ _ (NNum n) = pretty n
-ppNode s a (NGlobal _ g) = pretty "Global " <> pretty v
+ppNode s a (NGlobal _ _) = pretty "Global " <> pretty v
   where v = head [n | (n,b) <- getGlobals s, a == b]
   -- print globals by matching address lookup
 ppNode _ _ (NAp a1 a2) = pretty "Ap" <+> pretty a1 <+> pretty a2
@@ -227,7 +239,7 @@ ppNode _ _ (NInd a) = pretty "NInd" <+> pretty a
 
 ppSC :: GmState -> (Name, Addr) -> Doc ann
 ppSC s (name, addr) = pretty "Code for " <> pretty name <> hardline <> ppInstrs code <> hardline
-  where (NGlobal name code) = hLookup (getHeap s) addr
+  where (NGlobal _ code) = hLookup (getHeap s) addr
 
 ppStackItem :: GmState -> Addr -> Doc ann
 ppStackItem s a = pretty a <> pretty ": " <> ppNode s a (hLookup (getHeap s) a)
@@ -285,7 +297,7 @@ ppState :: GmState -> Doc ann
 ppState s = ppStack s <> hardline <> ppDump s <> hardline <> ppInstrs (getCode s) <> hardline
 
 ppResults :: [GmState] -> Doc ann
-ppResults states@(state:ss) =
+ppResults states@(state:_) =
   pretty "Supercombinator definitions" <> hardline <>
   vsep (map (ppSC state) (getGlobals state)) <> hardline <> hardline <>
  pretty "State transitions" <> hardline <> hardline <>
@@ -293,3 +305,4 @@ ppResults states@(state:ss) =
  vsep (map ppState limitedStates) <> hardline <> hardline <>
  ppStats (last limitedStates)
    where limitedStates = limitList 1000000 states
+ppResults [] = error "No states to print"

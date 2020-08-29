@@ -16,13 +16,11 @@ mainFunc = do
   sourceCode <- readFile (args !! 0)
   putStrLn.present.(fmap $ prSh') $ runParser prsProg "" sourceCode
 
+present :: (Stream s, ShowErrorComponent e) => Either (ParseErrorBundle s e) String -> String
 present (Left x) = errorBundlePretty x
 present (Right x) = x
 
-problem =  ELet nonRecursive [("x", ENum 5), ("a", ENum 9)] $ EAp (EAp (EVar "plus") (EVar "a")) (EVar "x")
-prog = [("main", [], problem)] --EAp (EAp (EVar "x") (ENum 12)) (ENum 17))]
-k = show.ppResults.eval.compile $ prog
-
+preludeDefs :: [CoreScDefn]
 preludeDefs = [
   ("i", ["x"], EVar "x"),
   ("fix", ["f"], -- fix f = f (fix f)
@@ -51,7 +49,7 @@ boxInteger n state = putStack (a : getStack state) (putHeap h' state)
 unboxInteger :: Addr -> GmState -> Int
 unboxInteger a state = ub . hLookup (getHeap state) $ a
   where ub (NNum i) = i
-        ub n        = error "Unboxing a non-integer"
+        ub _        = error "Unboxing a non-integer"
 
 primitive1 :: (b -> GmState -> GmState) -> (Addr -> GmState -> a) -> (a -> b) -> (GmState -> GmState)
 primitive1 box unbox op state = box (op (unbox a state)) (putStack as state)
@@ -64,6 +62,7 @@ primitive2 box unbox op state = box (op (unbox a0 state) (unbox a1 state)) (putS
 arith1 :: (Int -> Int) -> (GmState -> GmState)
 arith1 = primitive1 boxInteger unboxInteger
 
+neg :: GmState -> GmState
 neg = arith1 (0-)
 
 arith2 :: (Int -> Int -> Int) -> (GmState -> GmState)
@@ -83,8 +82,10 @@ boxBoolean b state = putStack (a: getStack state) (putHeap h' state)
         b' | b         = 1
            | otherwise = 0
 
+comparison :: (Int -> Int -> Bool) -> GmState -> GmState
 comparison = primitive2 boxBoolean unboxInteger
 
+eq, neq, lt, le, gt, ge :: GmState -> GmState
 eq = comparison (==)
 neq = comparison (/=)
 lt = comparison (<)
@@ -94,6 +95,7 @@ ge = comparison (>=)
 
 -- Pushglobal f:i   s h m[f:a]
 -- =>           i a:s h m
+pushglobal :: String -> GmState -> GmState
 pushglobal f state = putStack (a: getStack state) state
   where a = aLookup (getGlobals state) f (error $ "Undeclared global " ++ f)
 
@@ -113,9 +115,11 @@ pushint n state = case aLookupSafe (getGlobals state) (show n) of
 -- MkAp i a_1:a_2:s h                m
 -- =>   i       a:s h[a:NAp a_1 a_2] m
 -- Draw an application node in the graph with stack pointers
+mkap :: GmState -> GmState
 mkap state = putHeap heap' (putStack (a:as') state)
   where (heap', a) = hAlloc (getHeap state) (NAp a1 a2)
         (a1:a2:as') = getStack state
+
 -- Push n:i     a_0: ... :a_n:s h m (3.18)
 -- =>     i a_n:a_0: ... :a_n:s h m
 -- Push the nth argument to the top of the stack starting from 0
@@ -137,6 +141,7 @@ push n state
 -- with push then reduce with a function given by the code
 -- the sliding is to then get rid of the original graph
 -- once we already have pointers to the graph's application arguments.
+slide :: Int -> GmState -> GmState
 slide n state = putStack (a: drop n as) state
   where (a:as) = getStack state
 
@@ -239,14 +244,13 @@ cond i1 i2 state | node == NNum 1 = putCode (i1 ++ i) state'
 -- If there is an indirection to a' at a, replace a with a'
 unwind :: GmState -> GmState
 unwind state = newState $ hLookup heap a
-  where mapn n f xs = map f (take n xs) ++ drop n xs
-        (a:as) = getStack state
+  where (a:as) = getStack state
         heap   = getHeap state
         dump   = getDump state
-        newState (NNum n) = case dump of
+        newState (NNum _) = case dump of
           (i',s'):d -> (putCode i').(putStack (a:s')).(putDump d) $ state
           [] -> state
-        newState (NAp a1 a2) = putCode [Unwind] (putStack (a1:a:as) state)
+        newState (NAp a1 _) = putCode [Unwind] (putStack (a1:a:as) state)
         newState (NGlobal n c)
           | length as < n = error "Unwinding with too few arguments"
           | otherwise     = let stack' = rearrange n (getHeap state) (getStack state) in
@@ -303,7 +307,9 @@ evalFinalNode :: CoreProgram -> Node
 evalFinalNode expr = hLookup (getHeap state) (head $ getStack state)
   where state = (last.limitList 1000000.eval.compile) $ expr
 
+prSh' :: CoreProgram -> String
 prSh' = show.evalFinalNode
+prSh :: CoreExpr -> String
 prSh = prSh'.to_main
 
 type GmCompiledSc = (Name, Int, GmCode)
@@ -353,13 +359,14 @@ compileC (EVar v) env
     -- the environment maps argument names to how far up
     -- the stack they are, argument pointers are directly on the stack
     -- so we push this stack distance starting from 0
-compileC (ENum n) env = [Pushint n]
+compileC (ENum n) _ = [Pushint n]
 -- Apply e2 to e1, since e2 is given the original environment, we need to
 -- shift the environment for e1 since it has an argument in the stack e2 then the rest (not sure?)
 compileC (EAp e1 e2) env = compileC e2 env ++ compileC e1 (argOffset 1 env) ++ [MkAp]
-compileC (ELet recursive defs e) args -- 3.5.4
-         | recursive = compileLetrec compileC defs e args
+compileC (ELet isRecursive defs e) args -- 3.5.4
+         | isRecursive = compileLetrec compileC defs e args
          | otherwise = compileLet    compileC defs e args
+compileC _ _ = error "Unimplemented"
 
 -- calculates rho'
 compileArgs :: [CoreDefn] -> GmEnvironment -> GmEnvironment
@@ -379,10 +386,10 @@ compileLet comp defs expr env
 
 -- compile new definitions
 compileLet' :: [CoreDefn] -> GmEnvironment -> GmCode
-compileLet' [] env = []
+compileLet' [] _ = []
 -- starts with C[[e_1]] rho^+0 then C[[e_2]] rho^+(1),
 -- argOffset does the rho exponent adjustment
-compileLet' ((name,expr):defs) env
+compileLet' ((_,expr):defs) env
   -- We argOffset because closer to the start of the stack
   -- there has been a new expression defined (earlier definition)
   -- so the environment requires adjusting.
@@ -402,9 +409,10 @@ compileLetrec comp defs expr env = [Alloc n] ++ compileLetrec' 1 defs env' ++ co
 
 compileLetrec' :: Int -> [CoreDefn] -> GmEnvironment -> GmCode
 compileLetrec' _ [] _ = []
-compileLetrec' k ((name,expr):defs) env = compileC expr env ++ [Update (n-k)] ++ compileLetrec' (k+1) defs env
+compileLetrec' k ((_,expr):defs) env = compileC expr env ++ [Update (n-k)] ++ compileLetrec' (k+1) defs env
   where n = length defs + k
 
+compile :: CoreProgram -> GmState
 compile program = GmState initialCode [] [] heap globals statInitial
   where (heap, globals) = buildInitialHeap program
         initialCode = [Pushglobal "main", Eval]
