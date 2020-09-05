@@ -37,10 +37,8 @@ preludeDefs = [
   ("twice", ["f","x"], EAp (EVar "f") (EAp (EVar "f") (EVar "x")))
   ]
 
-doAdmin :: GmState -> GmState
-doAdmin s = putStats (statIncSteps $ getStats s) s
 
--- State transition description
+-- State transitions described as such:
 -- [instructions] [stack] [heap] [globals]
 -- => [instructions'] [stack'] [heap'] [globals']
 
@@ -250,7 +248,7 @@ cond i1 i2 state | node == NNum 1 = putCode (i1 ++ i) state'
 -- If there is an indirection to a' at a, replace a with a'
 unwind :: GmState -> GmState
 unwind state = newState $ hLookup heap a
-  where (a:as) = getStack state
+  where stack@(a:as) = getStack state
         heap   = getHeap state
         dump   = getDump state
         newState (NNum _) = case dump of
@@ -258,7 +256,9 @@ unwind state = newState $ hLookup heap a
           [] -> state
         newState (NAp a1 _) = putCode [Unwind] (putStack (a1:a:as) state)
         newState (NGlobal n c)
-          | length as < n = error "Unwinding with too few arguments"
+          | length as < n = case dump of
+            (i,s):d -> (putCode i).(putStack $ (last stack):s).(putDump d) $ state
+            [] -> error "Cannot unwind a global to WHNF lacking full args without a dump item"
           | otherwise     = let stack' = rearrange n (getHeap state) (getStack state) in
                             putCode c $ putStack stack' state
         newState (NInd a') = putCode [Unwind] (putStack (a':as) state)
@@ -296,6 +296,11 @@ dispatch Le = le
 dispatch Gt = gt
 dispatch Ge = ge
 
+-- G-machine state transition execution
+
+doAdmin :: GmState -> GmState
+doAdmin s = putStats (statIncSteps $ getStats s) s
+
 step :: GmState -> GmState
 step state = dispatch i (putCode is state)
   where (i:is) = getCode state
@@ -313,14 +318,20 @@ evalFinalNode :: CoreProgram -> Node
 evalFinalNode expr = hLookup (getHeap state) (head $ getStack state)
   where state = (last.limitList 1000000.eval.compile) $ expr
 
+-- Print the final nodes of a program/expr after execution
 prSh' :: CoreProgram -> String
 prSh' = show.evalFinalNode
 prSh :: CoreExpr -> String
 prSh = prSh'.to_main
 
+-- Compiler
 type GmCompiledSc = (Name, Int, GmCode)
 type GmEnvironment = Assoc Name Int
 type GmCompiler = CoreExpr -> GmEnvironment -> GmCode
+
+builtInDyadic :: Assoc Name Instr
+builtInDyadic = [("plus", Add), ("sub", Sub), ("mul", Mul), ("div", Div),
+                 ("eq", Eq), ("neq", Neq), ("ge", Ge), ("gt", Gt), ("le", Le), ("lt", Lt), ("mod", Mod)]
 
 -- SC [[f x_1 ... x_n = e]] = R [[e]] [x_1 -> 0, ..., x_n -> n-1] n
 -- For a direct supercombinator application the arguments are typically
@@ -329,15 +340,15 @@ compileSc :: (Name, [Name], CoreExpr) -> GmCompiledSc
 compileSc (name,env,body) = (name, length env, compileR body (zip env [0..]))
 
 -- Compile expression body then update top application with redirect, clean up with pop
+-- Specifically compile, reducing e to weak head normal form.
 -- This is the state transition for context.
 -- Update d: Pop d:i  a:a_0: ... :a_d:s h             m
 -- =>              i                  s h[a_d:NInd a] m
--- R[[e]] rho d = C[[e]] rho ++ [Update d, Pop d, Unwind]
+-- R[[e]] rho d = E[[e]] rho ++ [Update d, Pop d, Unwind]
 compileR :: GmCompiler
-compileR e env = compileC e env ++ [Update d, Pop d, Unwind]
+compileR e env = compileE e env ++ [Update d, Pop d, Unwind]
   where d = length env
 
--- Mk 3 change really don't understand
 -- C[[f]] rho = [Pushglobal f]                                  where f is a supercombinator
 -- C[[x]] rho = [Push (rho x)]                                  where x is a local variable
 -- C[[i]] rho = [Pushint i]
@@ -373,6 +384,19 @@ compileC (ELet isRecursive defs e) args -- 3.5.4
          | isRecursive = compileLetrec compileC defs e args
          | otherwise = compileLet    compileC defs e args
 compileC _ _ = error "Unimplemented"
+
+compileE :: GmCompiler
+compileE (ENum i) _ = [Pushint i]
+compileE (ELet isRecursive defs e) args
+         | isRecursive = compileLetrec compileE defs e args
+         | otherwise   = compileLet compileE defs e args
+-- compileE e@(EAp (EAp (EVar op) e0) e1) args = case aLookupSafe builtInDyadic op of
+--  Just instruction -> compileE e1 args ++ compileE e0 (argOffset 1 args) ++ [instruction]
+--  Nothing -> compileC e args ++ [Eval]
+-- compileE (EAp (EVar "negate") e) args = compileE e args ++ [Neg]
+-- compileE (EAp (EAp (EAp (EVar "if") e0) e1) e2) args = compileE e0 args ++ [Cond (compileE e1 args) (compileE e2 args)]
+compileE e args = compileC e args
+
 
 -- calculates rho'
 compileArgs :: [CoreDefn] -> GmEnvironment -> GmEnvironment
@@ -428,7 +452,7 @@ buildInitialHeap :: CoreProgram -> (GmHeap, GmGlobals)
 buildInitialHeap program = mapAccumL allocateSc hInitial compiledWPrelude
   where compiled = map compileSc program
         compiledPrimitives = [
-          ("plus", 2, [Push 1, Eval, Push 1, Eval, Add, Update 2, Pop 2, Unwind]),
+          ("plus", 2 :: Int, [Push 1, Eval, Push 1, Eval, Add, Update 2, Pop 2, Unwind]),
           ("sub", 2, [Push 1, Eval, Push 1, Eval, Sub, Update 2, Pop 2, Unwind]),
           ("mul", 2, [Push 1, Eval, Push 1, Eval, Mul, Update 2, Pop 2, Unwind]),
           ("div", 2, [Push 1, Eval, Push 1, Eval, Div, Update 2, Pop 2, Unwind]),

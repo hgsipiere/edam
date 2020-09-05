@@ -2,6 +2,8 @@ module Type where
 
 import Data.Text.Prettyprint.Doc
 
+-- Core syntax
+
 type IsRec = Bool
 type Name = String
 
@@ -48,8 +50,8 @@ type CoreProgram = Program Name
 
 to_main :: CoreExpr -> CoreProgram
 to_main expr = [("main", [], expr)]
--- G Machine types
 
+-- G Machine types
 data Instr
  = Unwind
  | Pushglobal Name
@@ -203,7 +205,7 @@ mkApChain' [] = error "No expressions to chain"
 mkApChain' [x] = x
 mkApChain' (x:xs@(_:_)) = EAp (mkApChain' xs) x
 
--- Format core expressions as document
+-- Pretty printing core
 ppDefn :: CoreDefn -> Doc ann
 ppDefn (name, value) = pretty name <+> pretty "=" <+> ppExpr value
 
@@ -225,7 +227,8 @@ ppAlt :: CoreAlt -> Doc ann
 ppAlt (tag,args,expr) = (pretty "<" <> pretty tag <> pretty ">") <+>
   encloseSep mempty mempty space (map pretty args) <+> pretty "->" <+>
   ppExpr expr
--- Format state machine types as document
+
+-- State transitions pretty printing
 ppStats :: GmState -> Doc ann
 ppStats s = pretty "Steps taken (if terminating) = " <> (pretty.statGetSteps.getStats $ s)
 
